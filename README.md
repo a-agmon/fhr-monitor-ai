@@ -55,6 +55,34 @@ The pipeline is intentionally staged so each output can be traced back to simple
 
 The intended service behavior is chunk-based. The device or upstream system sends the recent data it has; it does not need to tell the analyzer whether the chunk is exactly 20, 22, or 30 minutes.
 
+The canonical request format is documented in [docs/data_contract.md](docs/data_contract.md), with a machine-readable schema in [docs/request.schema.json](docs/request.schema.json). In short, a request is a JSON object with `episode_id`, `sent_at`, and a `samples` array. Each sample has a timestamp `t` and any available monitor channels: `hr1`, `hr2`, `hr3`, `hrm`, and `toco`.
+
+Minimal request:
+
+```json
+{
+  "episode_id": "18664805",
+  "sent_at": "2026-05-12T12:22:35.052Z",
+  "samples": [
+    {
+      "t": "2026-05-12T11:52:35.052Z",
+      "hr1": 129,
+      "hrm": 101,
+      "toco": 33
+    }
+  ]
+}
+```
+
+Important request rules:
+
+- Do not send `window_minutes` or `chunk_minutes` for normal operation.
+- The service infers the chunk duration from sample timestamps.
+- `null` or omitted HR fields mean missing signal.
+- `0` in heart-rate channels is treated as missing signal for compatibility with current device exports.
+- `0` in `toco` is valid.
+- Samples do not need to be pre-sorted; the service sorts them and reports ordering/duplicate metadata.
+
 The analyzer infers the span from timestamps and returns:
 
 - The actual input start/end/duration

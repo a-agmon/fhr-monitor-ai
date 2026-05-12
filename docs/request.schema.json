@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/a-agmon/fhr-monitor-ai/docs/request.schema.json",
+  "title": "FHR Monitor Analysis Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["episode_id", "sent_at", "samples"],
+  "properties": {
+    "episode_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable monitoring episode or labor encounter identifier."
+    },
+    "sent_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Time the upstream system sent the request. Prefer UTC with Z."
+    },
+    "analysis_options": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fetal_channel": {
+          "type": "string",
+          "enum": ["HR1", "HR2", "HR3"],
+          "default": "HR1"
+        },
+        "max_analysis_minutes": {
+          "type": "number",
+          "minimum": 10,
+          "maximum": 30,
+          "default": 30,
+          "description": "Maximum trailing span used for current-state analysis. This is not the chunk duration."
+        }
+      }
+    },
+    "samples": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Raw monitor samples for the recent chunk. Samples may be irregular or out of order.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["t"],
+        "properties": {
+          "t": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Sample timestamp. Prefer UTC with milliseconds."
+          },
+          "hr1": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "description": "Fetal heart-rate channel 1 in bpm. Null/omitted means missing; 0 is treated as missing."
+          },
+          "hr2": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "description": "Fetal heart-rate channel 2 in bpm. Null/omitted means missing; 0 is treated as missing."
+          },
+          "hr3": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "description": "Fetal heart-rate channel 3 in bpm. Null/omitted means missing; 0 is treated as missing."
+          },
+          "hrm": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "description": "Maternal heart rate in bpm. Null/omitted means missing; 0 is treated as missing."
+          },
+          "toco": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "description": "Uterine activity value in device-specific monitor units. Null/omitted means missing; 0 is valid."
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "gestational_age_weeks": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "labor_stage": {
+          "type": ["string", "null"],
+          "enum": ["first_stage", "second_stage", "unknown", null]
+        },
+        "oxytocin_running": {
+          "type": ["boolean", "null"]
+        },
+        "recent_epidural": {
+          "type": ["boolean", "null"]
+        },
+        "pushing": {
+          "type": ["boolean", "null"]
+        }
+      }
+    }
+  }
+}
