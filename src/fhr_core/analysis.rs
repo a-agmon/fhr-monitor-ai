@@ -180,6 +180,13 @@ fn analyze_window(
     associate_decelerations_with_contractions(&mut decelerations, &contractions);
 
     let toco = summarize_toco(&seconds, contractions, window_start_ms, window_end_ms);
+    let features = calculate_numeric_features(
+        &seconds,
+        baseline_bpm,
+        &accelerations,
+        &decelerations,
+        &toco,
+    );
     let mut reasons = Vec::new();
     let mut high_risk_features = Vec::new();
     let mut protective_features = Vec::new();
@@ -234,6 +241,7 @@ fn analyze_window(
         window_end,
         duration_seconds,
         data_quality,
+        features,
         baseline_bpm,
         baseline_class,
         variability_bpm,
@@ -319,6 +327,101 @@ fn calculate_quality(
         maternal_usable_ratio: ratio(maternal_usable_seconds, expected_seconds),
         toco_usable_ratio: ratio(toco_usable_seconds, expected_seconds),
         suspected_maternal_capture_ratio: ratio(close, overlap),
+    }
+}
+
+fn calculate_numeric_features(
+    seconds: &[SecondSample],
+    baseline_bpm: Option<i32>,
+    accelerations: &[AccelerationEvent],
+    decelerations: &[DecelerationEvent],
+    toco: &TocoSummary,
+) -> NumericFeatures {
+    let mut fhr_values: Vec<f64> = seconds.iter().filter_map(|sample| sample.fhr).collect();
+    let fhr_count = fhr_values.len();
+    let (
+        fetal_hr_min_bpm,
+        fetal_hr_p05_bpm,
+        fetal_hr_mean_bpm,
+        fetal_hr_median_bpm,
+        fetal_hr_p95_bpm,
+        fetal_hr_max_bpm,
+        fetal_hr_std_dev_bpm,
+    ) = summarize_values(&mut fhr_values);
+    let fetal_hr_seconds_below_110 = seconds
+        .iter()
+        .filter(|sample| sample.fhr.is_some_and(|value| value < 110.0))
+        .count();
+    let fetal_hr_seconds_above_160 = seconds
+        .iter()
+        .filter(|sample| sample.fhr.is_some_and(|value| value > 160.0))
+        .count();
+    let fetal_hr_seconds_110_to_160 = seconds
+        .iter()
+        .filter(|sample| {
+            sample
+                .fhr
+                .is_some_and(|value| (110.0..=160.0).contains(&value))
+        })
+        .count();
+
+    let mut toco_values: Vec<f64> = seconds.iter().filter_map(|sample| sample.toco).collect();
+    let (_, _, toco_mean, _, _, toco_max, _) = summarize_values(&mut toco_values);
+    let mut maternal_values: Vec<f64> = seconds.iter().filter_map(|sample| sample.hrm).collect();
+    let (_, _, maternal_hr_mean_bpm, _, _, _, _) = summarize_values(&mut maternal_values);
+
+    let baseline_delta_mean_bpm = match (fetal_hr_mean_bpm, baseline_bpm) {
+        (Some(mean), Some(baseline)) => Some(mean - baseline as f64),
+        _ => None,
+    };
+    let fetal_maternal_mean_difference_bpm = match (fetal_hr_mean_bpm, maternal_hr_mean_bpm) {
+        (Some(fetal), Some(maternal)) => Some(fetal - maternal),
+        _ => None,
+    };
+
+    NumericFeatures {
+        fetal_hr_min_bpm,
+        fetal_hr_p05_bpm,
+        fetal_hr_mean_bpm,
+        fetal_hr_median_bpm,
+        fetal_hr_p95_bpm,
+        fetal_hr_max_bpm,
+        fetal_hr_std_dev_bpm,
+        baseline_delta_mean_bpm,
+        fetal_hr_seconds_below_110,
+        fetal_hr_seconds_110_to_160,
+        fetal_hr_seconds_above_160,
+        fetal_hr_percent_below_110: ratio(fetal_hr_seconds_below_110, fhr_count) * 100.0,
+        fetal_hr_percent_110_to_160: ratio(fetal_hr_seconds_110_to_160, fhr_count) * 100.0,
+        fetal_hr_percent_above_160: ratio(fetal_hr_seconds_above_160, fhr_count) * 100.0,
+        acceleration_count: accelerations.len(),
+        deceleration_count: decelerations.len(),
+        prolonged_deceleration_count: decelerations
+            .iter()
+            .filter(|event| event.kind == DecelerationKind::Prolonged)
+            .count(),
+        total_deceleration_seconds: if decelerations.is_empty() {
+            0.0
+        } else {
+            decelerations
+                .iter()
+                .map(|event| event.duration_seconds)
+                .sum()
+        },
+        deepest_deceleration_nadir_bpm: decelerations
+            .iter()
+            .map(|event| event.nadir_bpm)
+            .min_by(f64::total_cmp),
+        max_deceleration_depth_bpm: decelerations
+            .iter()
+            .map(|event| event.depth_bpm)
+            .max_by(f64::total_cmp),
+        contraction_count: toco.contractions.len(),
+        contractions_per_10_min: toco.contractions_per_10_min,
+        toco_mean,
+        toco_max,
+        maternal_hr_mean_bpm,
+        fetal_maternal_mean_difference_bpm,
     }
 }
 
@@ -1000,6 +1103,41 @@ fn percentile(sorted_values: &[f64], q: f64) -> f64 {
     sorted_values[idx.min(sorted_values.len() - 1)]
 }
 
+type ValueSummary = (
+    Option<f64>,
+    Option<f64>,
+    Option<f64>,
+    Option<f64>,
+    Option<f64>,
+    Option<f64>,
+    Option<f64>,
+);
+
+fn summarize_values(values: &mut [f64]) -> ValueSummary {
+    if values.is_empty() {
+        return (None, None, None, None, None, None, None);
+    }
+    values.sort_by(f64::total_cmp);
+    let mean = values.iter().sum::<f64>() / values.len() as f64;
+    let variance = values
+        .iter()
+        .map(|value| {
+            let delta = value - mean;
+            delta * delta
+        })
+        .sum::<f64>()
+        / values.len() as f64;
+    (
+        values.first().copied(),
+        Some(percentile(values, 0.05)),
+        Some(mean),
+        Some(percentile(values, 0.50)),
+        Some(percentile(values, 0.95)),
+        values.last().copied(),
+        Some(variance.sqrt()),
+    )
+}
+
 fn label_for_time(seconds: &[SecondSample], timestamp_ms: i64) -> String {
     seconds
         .iter()
@@ -1146,6 +1284,178 @@ pub fn report_as_json(report: &AnalysisReport) -> String {
             window.variability_class.map(VariabilityClass::as_str),
             true,
         );
+        out.push_str("      \"features\": {\n");
+        push_json_option_number(
+            &mut out,
+            4,
+            "fetal_hr_min_bpm",
+            window.features.fetal_hr_min_bpm,
+            true,
+        );
+        push_json_option_number(
+            &mut out,
+            4,
+            "fetal_hr_p05_bpm",
+            window.features.fetal_hr_p05_bpm,
+            true,
+        );
+        push_json_option_number(
+            &mut out,
+            4,
+            "fetal_hr_mean_bpm",
+            window.features.fetal_hr_mean_bpm,
+            true,
+        );
+        push_json_option_number(
+            &mut out,
+            4,
+            "fetal_hr_median_bpm",
+            window.features.fetal_hr_median_bpm,
+            true,
+        );
+        push_json_option_number(
+            &mut out,
+            4,
+            "fetal_hr_p95_bpm",
+            window.features.fetal_hr_p95_bpm,
+            true,
+        );
+        push_json_option_number(
+            &mut out,
+            4,
+            "fetal_hr_max_bpm",
+            window.features.fetal_hr_max_bpm,
+            true,
+        );
+        push_json_option_number(
+            &mut out,
+            4,
+            "fetal_hr_std_dev_bpm",
+            window.features.fetal_hr_std_dev_bpm,
+            true,
+        );
+        push_json_option_number(
+            &mut out,
+            4,
+            "baseline_delta_mean_bpm",
+            window.features.baseline_delta_mean_bpm,
+            true,
+        );
+        push_json_usize(
+            &mut out,
+            4,
+            "fetal_hr_seconds_below_110",
+            window.features.fetal_hr_seconds_below_110,
+            true,
+        );
+        push_json_usize(
+            &mut out,
+            4,
+            "fetal_hr_seconds_110_to_160",
+            window.features.fetal_hr_seconds_110_to_160,
+            true,
+        );
+        push_json_usize(
+            &mut out,
+            4,
+            "fetal_hr_seconds_above_160",
+            window.features.fetal_hr_seconds_above_160,
+            true,
+        );
+        push_json_number(
+            &mut out,
+            4,
+            "fetal_hr_percent_below_110",
+            window.features.fetal_hr_percent_below_110,
+            true,
+        );
+        push_json_number(
+            &mut out,
+            4,
+            "fetal_hr_percent_110_to_160",
+            window.features.fetal_hr_percent_110_to_160,
+            true,
+        );
+        push_json_number(
+            &mut out,
+            4,
+            "fetal_hr_percent_above_160",
+            window.features.fetal_hr_percent_above_160,
+            true,
+        );
+        push_json_usize(
+            &mut out,
+            4,
+            "acceleration_count",
+            window.features.acceleration_count,
+            true,
+        );
+        push_json_usize(
+            &mut out,
+            4,
+            "deceleration_count",
+            window.features.deceleration_count,
+            true,
+        );
+        push_json_usize(
+            &mut out,
+            4,
+            "prolonged_deceleration_count",
+            window.features.prolonged_deceleration_count,
+            true,
+        );
+        push_json_number(
+            &mut out,
+            4,
+            "total_deceleration_seconds",
+            window.features.total_deceleration_seconds,
+            true,
+        );
+        push_json_option_number(
+            &mut out,
+            4,
+            "deepest_deceleration_nadir_bpm",
+            window.features.deepest_deceleration_nadir_bpm,
+            true,
+        );
+        push_json_option_number(
+            &mut out,
+            4,
+            "max_deceleration_depth_bpm",
+            window.features.max_deceleration_depth_bpm,
+            true,
+        );
+        push_json_usize(
+            &mut out,
+            4,
+            "contraction_count",
+            window.features.contraction_count,
+            true,
+        );
+        push_json_number(
+            &mut out,
+            4,
+            "contractions_per_10_min",
+            window.features.contractions_per_10_min,
+            true,
+        );
+        push_json_option_number(&mut out, 4, "toco_mean", window.features.toco_mean, true);
+        push_json_option_number(&mut out, 4, "toco_max", window.features.toco_max, true);
+        push_json_option_number(
+            &mut out,
+            4,
+            "maternal_hr_mean_bpm",
+            window.features.maternal_hr_mean_bpm,
+            true,
+        );
+        push_json_option_number(
+            &mut out,
+            4,
+            "fetal_maternal_mean_difference_bpm",
+            window.features.fetal_maternal_mean_difference_bpm,
+            false,
+        );
+        out.push_str("      },\n");
         out.push_str("      \"data_quality\": {\n");
         push_json_usize(
             &mut out,

@@ -54,6 +54,18 @@ The service should return both the classification and the evidence behind it:
   "alert_level": "warning",
   "baseline_bpm": 165,
   "variability_class": "minimal",
+  "features": {
+    "fetal_hr_mean_bpm": 147.0,
+    "fetal_hr_p05_bpm": 138.0,
+    "fetal_hr_p95_bpm": 156.0,
+    "fetal_hr_percent_below_110": 0.0,
+    "fetal_hr_percent_above_160": 0.2,
+    "acceleration_count": 0,
+    "deceleration_count": 0,
+    "contraction_count": 1,
+    "contractions_per_10_min": 0.333,
+    "fetal_maternal_mean_difference_bpm": 63.5
+  },
   "data_quality": {
     "fetal_usable_ratio": 0.92,
     "maternal_usable_ratio": 0.88,
@@ -68,3 +80,5 @@ The service should return both the classification and the evidence behind it:
 ```
 
 The alerting system should interrupt clinicians only for high-risk Category II, possible Category III, or important data-quality failures. Lower-risk Category II findings should still be returned in the response for context and audit.
+
+The `features` object is deliberately numeric so other systems can trend fetal-rate status without parsing alert text. It should be returned even when no alert fires or the tracing is unclassified due to signal quality.

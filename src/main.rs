@@ -144,6 +144,19 @@ fn print_text_report(path: &str, report: &fhr_monitor::AnalysisReport) {
         if !window.high_risk_features.is_empty() {
             println!("  high-risk: {}", window.high_risk_features.join("; "));
         }
+        println!(
+            "  stats: mean={} p05={} p95={} below110={:.1}% above160={:.1}% accels={} decels={} decel_sec={:.0} contractions={} toco_max={}",
+            fmt_optional_number(window.features.fetal_hr_mean_bpm),
+            fmt_optional_number(window.features.fetal_hr_p05_bpm),
+            fmt_optional_number(window.features.fetal_hr_p95_bpm),
+            window.features.fetal_hr_percent_below_110,
+            window.features.fetal_hr_percent_above_160,
+            window.features.acceleration_count,
+            window.features.deceleration_count,
+            window.features.total_deceleration_seconds,
+            window.features.contraction_count,
+            fmt_optional_number(window.features.toco_max),
+        );
         if !window.protective_features.is_empty() {
             println!("  protective: {}", window.protective_features.join("; "));
         }
@@ -154,4 +167,10 @@ fn print_text_report(path: &str, report: &fhr_monitor::AnalysisReport) {
             println!("  limitations: {}", window.limitations.join("; "));
         }
     }
+}
+
+fn fmt_optional_number(value: Option<f64>) -> String {
+    value
+        .map(|value| format!("{value:.1}"))
+        .unwrap_or_else(|| "NA".to_string())
 }

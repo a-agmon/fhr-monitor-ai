@@ -95,6 +95,7 @@ pub struct WindowAnalysis {
     pub window_end: String,
     pub duration_seconds: f64,
     pub data_quality: DataQuality,
+    pub features: NumericFeatures,
     pub baseline_bpm: Option<i32>,
     pub baseline_class: Option<BaselineClass>,
     pub variability_bpm: Option<f64>,
@@ -108,6 +109,36 @@ pub struct WindowAnalysis {
     pub high_risk_features: Vec<String>,
     pub protective_features: Vec<String>,
     pub limitations: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct NumericFeatures {
+    pub fetal_hr_min_bpm: Option<f64>,
+    pub fetal_hr_p05_bpm: Option<f64>,
+    pub fetal_hr_mean_bpm: Option<f64>,
+    pub fetal_hr_median_bpm: Option<f64>,
+    pub fetal_hr_p95_bpm: Option<f64>,
+    pub fetal_hr_max_bpm: Option<f64>,
+    pub fetal_hr_std_dev_bpm: Option<f64>,
+    pub baseline_delta_mean_bpm: Option<f64>,
+    pub fetal_hr_seconds_below_110: usize,
+    pub fetal_hr_seconds_110_to_160: usize,
+    pub fetal_hr_seconds_above_160: usize,
+    pub fetal_hr_percent_below_110: f64,
+    pub fetal_hr_percent_110_to_160: f64,
+    pub fetal_hr_percent_above_160: f64,
+    pub acceleration_count: usize,
+    pub deceleration_count: usize,
+    pub prolonged_deceleration_count: usize,
+    pub total_deceleration_seconds: f64,
+    pub deepest_deceleration_nadir_bpm: Option<f64>,
+    pub max_deceleration_depth_bpm: Option<f64>,
+    pub contraction_count: usize,
+    pub contractions_per_10_min: f64,
+    pub toco_mean: Option<f64>,
+    pub toco_max: Option<f64>,
+    pub maternal_hr_mean_bpm: Option<f64>,
+    pub fetal_maternal_mean_difference_bpm: Option<f64>,
 }
 
 #[derive(Clone, Debug)]

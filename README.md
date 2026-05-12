@@ -35,6 +35,7 @@ The analyzer infers the span from timestamps and returns:
 - The actual input start/end/duration
 - The analyzed window start/end/duration
 - Data quality metrics
+- Numeric fetal-rate and TOCO features for downstream systems
 - Features found
 - Classification, when possible
 - Alert level
@@ -99,6 +100,17 @@ cargo run --bin fhr-cli -- /path/to/monitor.csv --channel HR1 --window-min 30 --
       "classification": "unclassified",
       "alert_level": "data_quality",
       "baseline_bpm": null,
+      "features": {
+        "fetal_hr_mean_bpm": 147.0,
+        "fetal_hr_p05_bpm": 138.0,
+        "fetal_hr_p95_bpm": 156.0,
+        "fetal_hr_percent_below_110": 0.0,
+        "fetal_hr_percent_above_160": 0.2,
+        "acceleration_count": 0,
+        "deceleration_count": 0,
+        "contraction_count": 1,
+        "contractions_per_10_min": 0.333
+      },
       "reasons": ["cannot classify without a determinate baseline"],
       "limitations": ["baseline indeterminate: fewer than 120 usable fetal-HR seconds in the current 10-minute segment"]
     }
@@ -117,6 +129,10 @@ The goal is to reduce alert fatigue. The analyzer should not fire the same kind 
 - `data_quality`: the tracing cannot be interpreted reliably
 
 Even when no alert fires, the service should return all detected features and limitations so the UI can show useful context.
+
+## Numeric Features
+
+Each analysis window includes a `features` object intended for other systems that need fetal-rate status without parsing alert text. It includes distribution metrics such as min, p05, mean, median, p95, max, and standard deviation; seconds and percentages below 110 bpm, within 110-160 bpm, and above 160 bpm; acceleration/deceleration counts and duration; contraction counts; TOCO summary values; and maternal-vs-fetal mean HR difference when maternal HR is available.
 
 ## Repository Layout
 

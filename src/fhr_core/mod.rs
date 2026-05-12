@@ -8,5 +8,6 @@ pub use csv_input::read_monitor_csv;
 pub use model::{
     AccelerationEvent, AlertLevel, AnalysisConfig, AnalysisReport, BaselineClass,
     CategoryClassification, ContractionEvent, DataQuality, DecelerationEvent, DecelerationKind,
-    FetalChannel, InputData, MonitorSample, TocoSummary, VariabilityClass, WindowAnalysis,
+    FetalChannel, InputData, MonitorSample, NumericFeatures, TocoSummary, VariabilityClass,
+    WindowAnalysis,
 };
