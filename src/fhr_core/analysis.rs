@@ -87,27 +87,37 @@ pub fn analyze_rolling_windows(input: &InputData, config: AnalysisConfig) -> Ana
 
     let data_start = input.samples.first().unwrap().timestamp_ms;
     let data_end = input.samples.last().unwrap().timestamp_ms;
-    let window_ms = config.window_minutes as i64 * 60 * 1_000;
-    let step_ms = config.step_seconds.max(1) as i64 * 1_000;
-
     let mut windows = Vec::new();
-    let first_end = if data_end - data_start < window_ms {
-        data_end
+
+    if let Some(window_minutes) = config.window_minutes {
+        let window_ms = window_minutes as i64 * 60 * 1_000;
+        let step_ms = config.step_seconds.max(1) as i64 * 1_000;
+        let first_end = if data_end - data_start < window_ms {
+            data_end
+        } else {
+            data_start + window_ms
+        };
+        let mut cursor = first_end;
+        let mut last_analyzed_end = None;
+
+        while cursor <= data_end {
+            let window_start = (cursor - window_ms).max(data_start);
+            windows.push(analyze_window(input, &config, window_start, cursor));
+            last_analyzed_end = Some(cursor);
+            cursor += step_ms;
+        }
+
+        if last_analyzed_end != Some(data_end) {
+            let window_start = (data_end - window_ms).max(data_start);
+            windows.push(analyze_window(input, &config, window_start, data_end));
+        }
     } else {
-        data_start + window_ms
-    };
-    let mut cursor = first_end;
-    let mut last_analyzed_end = None;
-
-    while cursor <= data_end {
-        let window_start = (cursor - window_ms).max(data_start);
-        windows.push(analyze_window(input, &config, window_start, cursor));
-        last_analyzed_end = Some(cursor);
-        cursor += step_ms;
-    }
-
-    if last_analyzed_end != Some(data_end) {
-        let window_start = (data_end - window_ms).max(data_start);
+        let chunk_ms = data_end - data_start;
+        let window_start = if chunk_ms > THIRTY_MIN_MS {
+            data_end - THIRTY_MIN_MS
+        } else {
+            data_start
+        };
         windows.push(analyze_window(input, &config, window_start, data_end));
     }
 
@@ -1031,10 +1041,21 @@ pub fn report_as_json(report: &AnalysisReport) -> String {
         report.config.fetal_channel.as_str(),
         true,
     );
-    push_json_u32(
+    push_json_line(
         &mut out,
         1,
-        "window_minutes",
+        "analysis_mode",
+        if report.config.window_minutes.is_some() {
+            "rolling"
+        } else {
+            "chunk"
+        },
+        true,
+    );
+    push_json_option_u32(
+        &mut out,
+        1,
+        "requested_window_minutes",
         report.config.window_minutes,
         true,
     );
@@ -1253,6 +1274,24 @@ fn push_json_usize(out: &mut String, indent: usize, key: &str, value: usize, com
 fn push_json_u32(out: &mut String, indent: usize, key: &str, value: u32, comma: bool) {
     out.push_str(&"  ".repeat(indent));
     out.push_str(&format!("\"{key}\": {value}"));
+    if comma {
+        out.push(',');
+    }
+    out.push('\n');
+}
+
+fn push_json_option_u32(
+    out: &mut String,
+    indent: usize,
+    key: &str,
+    value: Option<u32>,
+    comma: bool,
+) {
+    out.push_str(&"  ".repeat(indent));
+    match value {
+        Some(value) => out.push_str(&format!("\"{key}\": {value}")),
+        None => out.push_str(&format!("\"{key}\": null")),
+    }
     if comma {
         out.push(',');
     }

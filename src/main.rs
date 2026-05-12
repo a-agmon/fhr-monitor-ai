@@ -35,7 +35,7 @@ fn run() -> Result<(), String> {
             }
             "--window-min" => {
                 idx += 1;
-                config.window_minutes = parse_u32_arg(&args, idx, "--window-min")?;
+                config.window_minutes = Some(parse_u32_arg(&args, idx, "--window-min")?);
             }
             "--step-sec" => {
                 idx += 1;
@@ -59,8 +59,10 @@ fn run() -> Result<(), String> {
         idx += 1;
     }
 
-    if !(10..=30).contains(&config.window_minutes) {
-        return Err("--window-min must be between 10 and 30 for this prototype".to_string());
+    if let Some(window_minutes) = config.window_minutes {
+        if !(10..=30).contains(&window_minutes) {
+            return Err("--window-min must be between 10 and 30 for this prototype".to_string());
+        }
     }
     let csv_path = csv_path.ok_or_else(|| "missing CSV path".to_string())?;
     let input = read_monitor_csv(&csv_path)?;
@@ -89,7 +91,9 @@ fn parse_u32_arg(args: &[String], idx: usize, name: &str) -> Result<u32, String>
 
 fn print_usage() {
     println!(
-        "Usage: fhr-cli <csv-path> [--channel HR1|HR2|HR3] [--window-min 10..30] [--step-sec N] [--last-only] [--json]"
+        "Usage: fhr-cli <csv-path> [--channel HR1|HR2|HR3] [--window-min 10..30] [--step-sec N] [--last-only] [--json]
+
+By default, the CLI analyzes the available chunk and infers its duration. Use --window-min only for rolling-window replay."
     );
 }
 
@@ -104,10 +108,15 @@ fn print_text_report(path: &str, report: &fhr_monitor::AnalysisReport) {
         report.input.out_of_order_rows,
         report.input.duplicate_timestamps
     );
+    let window_label = report
+        .config
+        .window_minutes
+        .map(|minutes| format!("{minutes} min rolling"))
+        .unwrap_or_else(|| "inferred chunk, capped at latest 30 min".to_string());
     println!(
-        "config: channel={} window={} min step={} sec",
+        "config: channel={} window={} step={} sec",
         report.config.fetal_channel.as_str(),
-        report.config.window_minutes,
+        window_label,
         report.config.step_seconds
     );
     println!();

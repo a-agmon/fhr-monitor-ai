@@ -1,12 +1,13 @@
 # FHR Decision-Support Data Contract
 
-This prototype assumes the monitor pushes a recent rolling time window. The service should accept variable-length windows, but it should report which parts of the analysis are complete.
+This prototype assumes the monitor pushes a recent data chunk. The caller does not need to declare whether the chunk is exactly 20, 22, or 30 minutes. The service infers the actual span from timestamps, analyzes what is available, and reports which clinical checks are complete or incomplete.
 
 ## Recommended Window
 
-- Preferred: 30 minutes, pushed every 60 seconds.
-- Acceptable: 20 minutes for baseline, variability, and recurrent deceleration screening.
+- Preferred: send the most recent 30 minutes every 60 seconds.
+- Acceptable: send any recent chunk between 20 and 30 minutes.
 - Minimum: 10 minutes for baseline and variability only.
+- If more than 30 minutes is sent, the current-state analysis should use the latest 30 minutes and still return full input metadata.
 
 Why:
 
@@ -20,7 +21,7 @@ Why:
 {
   "episode_id": "18664805",
   "sent_at": "2026-05-12T12:22:35.052Z",
-  "window_minutes": 30,
+  "chunk_hint_minutes": null,
   "samples": [
     {
       "t": "2026-05-12T11:52:35.052Z",

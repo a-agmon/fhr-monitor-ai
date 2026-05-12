@@ -56,7 +56,7 @@ pub struct InputData {
 #[derive(Clone, Debug)]
 pub struct AnalysisConfig {
     pub fetal_channel: FetalChannel,
-    pub window_minutes: u32,
+    pub window_minutes: Option<u32>,
     pub step_seconds: u32,
     pub gestational_age_weeks: Option<u8>,
 }
@@ -65,7 +65,7 @@ impl Default for AnalysisConfig {
     fn default() -> Self {
         Self {
             fetal_channel: FetalChannel::Hr1,
-            window_minutes: 30,
+            window_minutes: None,
             step_seconds: 60,
             gestational_age_weeks: None,
         }
