@@ -1,0 +1,12 @@
+[package]
+name = "fhr-monitor"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "fhr_monitor"
+path = "src/lib.rs"
+
+[[bin]]
+name = "fhr-cli"
+path = "src/main.rs"
