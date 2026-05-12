@@ -135,6 +135,43 @@ Replay a file with fixed rolling windows:
 cargo run --bin fhr-cli -- /path/to/monitor.csv --channel HR1 --window-min 30 --step-sec 60
 ```
 
+### CLI Flags
+
+The CLI currently accepts CSV monitor exports and is mainly for local replay/testing of the core logic. The future service should use the JSON request contract documented above.
+
+```bash
+fhr-cli <csv-path> [--channel HR1|HR2|HR3] [--window-min 10..30] [--step-sec N] [--last-only] [--json] [--ga-weeks N]
+```
+
+| Argument or flag | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `<csv-path>` | Yes | none | Path to a CSV export with `Date`, `HR1`, `HR2`, `HR3`, `HRM`, and `TOCO` columns. Extra columns are ignored by the current parser. |
+| `--channel HR1|HR2|HR3` | No | `HR1` | Selects which fetal heart-rate channel to analyze. Use this when the active fetal trace is on `HR2` or `HR3`. |
+| `--window-min 10..30` | No | omitted | Enables fixed rolling-window replay. Without this flag, the CLI analyzes the available chunk and infers its duration, capped at the latest 30 minutes. |
+| `--step-sec N` | No | `60` | Step size between rolling windows when `--window-min` is supplied. For example, `--window-min 30 --step-sec 60` simulates one analysis every minute. |
+| `--last-only` | No | false | Prints only the final analyzed window. Useful when testing a long CSV but only caring about the current-state result. |
+| `--json` | No | false | Emits JSON instead of the human-readable text report. Use this for downstream integration tests. |
+| `--ga-weeks N` | No | omitted | Stores gestational age in the config for future gestational-age-specific logic. The current prototype does not yet change thresholds based on this value. |
+| `-h`, `--help` | No | false | Prints CLI usage. |
+
+Default chunk mode:
+
+```bash
+cargo run --bin fhr-cli -- /path/to/monitor.csv --channel HR1 --json
+```
+
+Rolling replay mode:
+
+```bash
+cargo run --bin fhr-cli -- /path/to/monitor.csv --channel HR1 --window-min 20 --step-sec 60
+```
+
+Current-state only from a long CSV:
+
+```bash
+cargo run --bin fhr-cli -- /path/to/monitor.csv --channel HR1 --last-only
+```
+
 ## Example Response Fields
 
 ```json
