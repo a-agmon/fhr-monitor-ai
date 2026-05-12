@@ -66,6 +66,8 @@ fn run() -> Result<(), String> {
     }
     let csv_path = csv_path.ok_or_else(|| "missing CSV path".to_string())?;
     let input = read_monitor_csv(&csv_path)?;
+    // CLI defaults mirror the future service: analyze the chunk as received.
+    // Supplying --window-min switches to replay mode for development/tuning.
     let mut report = analyze_rolling_windows(&input, config);
     if last_only && report.windows.len() > 1 {
         if let Some(last) = report.windows.last().cloned() {

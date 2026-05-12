@@ -26,6 +26,31 @@ The analyzer currently performs:
 - Higher-risk Category II feature flags
 - Data-quality alerting when the tracing cannot be interpreted safely
 
+## What This Prototype Is Testing
+
+This project is trying to answer a practical question: can a small, deterministic rules engine turn pushed monitor chunks into useful fetal-rate status metadata without creating another noisy alarm stream?
+
+The current implementation is testing several assumptions:
+
+- Whether recent chunks can be analyzed without the caller declaring an exact window length.
+- Whether data quality should be a first-class output instead of silently producing a misleading classification.
+- Whether Category II alerts can be split into low-interruption context versus higher-risk warning signals.
+- Whether numeric features such as fetal HR distribution, time below/above normal range, deceleration burden, and contraction frequency are useful to downstream systems even when no alert fires.
+- Whether a deterministic, explainable Rust core is a good foundation before adding any ML or clinician-labeled tuning.
+
+## How It Works
+
+The pipeline is intentionally staged so each output can be traced back to simple intermediate measurements:
+
+1. Parse the monitor chunk and sort by timestamp.
+2. Treat zero heart-rate values as missing signal and preserve signal-loss metadata.
+3. Resample the raw monitor feed into one-second buckets so irregular device cadence does not dominate the logic.
+4. Analyze the latest available span, capped at 30 minutes for current-state interpretation.
+5. Estimate baseline and variability from the most recent 10-minute segment when enough usable fetal HR exists.
+6. Detect accelerations, decelerations, and TOCO-derived contractions over the recent context window.
+7. Classify the tracing when possible, but return `data_quality` instead of forcing a category when the signal is insufficient.
+8. Emit numeric features, reasons, high-risk features, protective features, and limitations for downstream systems.
+
 ## Chunk-Based Input
 
 The intended service behavior is chunk-based. The device or upstream system sends the recent data it has; it does not need to tell the analyzer whether the chunk is exactly 20, 22, or 30 minutes.

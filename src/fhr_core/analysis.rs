@@ -89,6 +89,9 @@ pub fn analyze_rolling_windows(input: &InputData, config: AnalysisConfig) -> Ana
     let data_end = input.samples.last().unwrap().timestamp_ms;
     let mut windows = Vec::new();
 
+    // Two modes are supported because we need both operational analysis and
+    // offline replay. Service callers send an arbitrary recent chunk; replay
+    // callers can request fixed rolling windows to inspect how features evolve.
     if let Some(window_minutes) = config.window_minutes {
         let window_ms = window_minutes as i64 * 60 * 1_000;
         let step_ms = config.step_seconds.max(1) as i64 * 1_000;
@@ -113,6 +116,9 @@ pub fn analyze_rolling_windows(input: &InputData, config: AnalysisConfig) -> Ana
         }
     } else {
         let chunk_ms = data_end - data_start;
+        // Current-state analysis only needs the latest 30 minutes. We still
+        // report the full input duration separately so upstream systems can
+        // audit what was sent versus what was clinically interpretable.
         let window_start = if chunk_ms > THIRTY_MIN_MS {
             data_end - THIRTY_MIN_MS
         } else {
@@ -134,6 +140,9 @@ fn analyze_window(
     window_start_ms: i64,
     window_end_ms: i64,
 ) -> WindowAnalysis {
+    // The window analysis is intentionally ordered from raw signal handling to
+    // clinical interpretation. This lets data-quality failures stop short of a
+    // misleading category while still returning useful numeric status features.
     let raw_window: Vec<&MonitorSample> = input
         .samples
         .iter()
@@ -161,6 +170,9 @@ fn analyze_window(
         .or_else(|| seconds.last().map(|sample| sample.timestamp.clone()))
         .unwrap_or_else(|| "unknown".to_string());
 
+    // ACOG/NICHD baseline and variability are assessed on a 10-minute segment.
+    // If the most recent segment has too little usable FHR, the result remains
+    // unclassified and the caller receives a data-quality limitation.
     let current_start = (window_end_ms - TEN_MIN_MS).max(window_start_ms);
     let baseline_bpm = estimate_baseline(&seconds, current_start, window_end_ms);
     let baseline_class = baseline_bpm.map(classify_baseline);
@@ -169,6 +181,9 @@ fn analyze_window(
     });
     let variability_class = variability_bpm.map(classify_variability);
 
+    // Event detection uses the recent 20-minute context when available. That is
+    // enough to start testing recurrent-pattern logic without requiring callers
+    // to know or declare whether they sent exactly 20 or 30 minutes.
     let eval_start = (window_end_ms - TWENTY_MIN_MS).max(window_start_ms);
     let accelerations = baseline_bpm
         .map(|baseline| detect_accelerations(&seconds, baseline as f64, eval_start, window_end_ms))
@@ -180,6 +195,8 @@ fn analyze_window(
     associate_decelerations_with_contractions(&mut decelerations, &contractions);
 
     let toco = summarize_toco(&seconds, contractions, window_start_ms, window_end_ms);
+    // Numeric features are emitted even when the tracing is unclassified. Other
+    // systems can trend fetal-rate status without parsing alert text.
     let features = calculate_numeric_features(
         &seconds,
         baseline_bpm,

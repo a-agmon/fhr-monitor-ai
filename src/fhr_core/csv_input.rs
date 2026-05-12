@@ -24,6 +24,8 @@ pub fn read_monitor_csv(path: impl AsRef<Path>) -> Result<InputData, String> {
     let mut previous_ts = None;
     let mut out_of_order_rows = 0;
 
+    // Real device exports are not perfectly ordered. Preserve disorder metrics
+    // for metadata, then sort before analysis so feature extraction is stable.
     for (line_idx, line) in lines.enumerate() {
         if line.trim().is_empty() {
             continue;
