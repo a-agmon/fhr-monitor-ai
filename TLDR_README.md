@@ -91,7 +91,7 @@ python -m jupyter notebook examples/fhr_monitor_analyzer_demo.ipynb
 
 - Publish to PyPI:
   - Configure PyPI Trusted Publishing for the `pypi` environment.
-  - Update the version in `pyproject.toml`.
+  - Update the version in `pyproject.toml` and `Cargo.toml`.
   - Push a version tag:
 
 ```bash

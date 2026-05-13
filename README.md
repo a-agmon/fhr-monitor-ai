@@ -426,7 +426,7 @@ Publish to PyPI:
 
 1. Create the PyPI project named `fhr-monitor-analyzer`.
 2. Configure PyPI Trusted Publishing for this GitHub repository and the `pypi` environment.
-3. Update the version in `pyproject.toml`.
+3. Update the version in `pyproject.toml` and `Cargo.toml`.
 4. Commit and push the version change to `main`.
 5. Push a matching version tag:
 
