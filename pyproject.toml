@@ -28,7 +28,7 @@ dependencies = []
 
 [project.optional-dependencies]
 plot = ["matplotlib>=3.8"]
-dev = ["matplotlib>=3.8", "notebook>=7", "pytest>=8"]
+dev = ["ipykernel>=6", "matplotlib>=3.8", "notebook>=7", "pytest>=8"]
 
 [tool.maturin]
 python-source = "python"

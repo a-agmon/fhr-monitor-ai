@@ -181,9 +181,20 @@ Local development install:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip maturin pytest matplotlib
-maturin develop --features python
+python -m pip install --upgrade pip maturin pytest matplotlib notebook ipykernel
+maturin build --features python --out dist
+python -m pip install --force-reinstall dist/*.whl
+python -c "import sys, fhr_monitor_analyzer; print(sys.executable); print(fhr_monitor_analyzer.__file__)"
 ```
+
+Notebook kernel setup:
+
+```bash
+python -m ipykernel install --user --name fhr-monitor-analyzer --display-name "Python (fhr-monitor-analyzer)"
+python -m jupyter notebook examples/fhr_monitor_analyzer_demo.ipynb
+```
+
+In Jupyter, select the `Python (fhr-monitor-analyzer)` kernel. If `import fhr_monitor_analyzer` fails inside the notebook, run `import sys; print(sys.executable)` in a notebook cell and confirm it points at this repo's `.venv`.
 
 Python usage:
 
@@ -375,7 +386,8 @@ Run Python checks locally:
 
 ```bash
 python -m pip install --upgrade pip maturin pytest matplotlib
-maturin develop --features python
+maturin build --features python --out dist
+python -m pip install --force-reinstall dist/*.whl
 pytest tests/python
 ```
 

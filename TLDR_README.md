@@ -27,13 +27,15 @@ cargo run --bin fhr-monitor-analyzer-cli -- /path/to/monitor.csv --channel HR1 -
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip maturin pytest matplotlib notebook
+python -m pip install --upgrade pip maturin pytest matplotlib notebook ipykernel
 ```
 
-- Build/install editable Python package:
+- Build/install Python package:
 
 ```bash
-maturin develop --features python
+maturin build --features python --out dist
+python -m pip install --force-reinstall dist/*.whl
+python -c "import fhr_monitor_analyzer; print(fhr_monitor_analyzer.__file__)"
 ```
 
 - Build wheel artifacts:
@@ -69,8 +71,11 @@ fhr.plot_csv_file("/path/to/monitor.csv", output="monitor_plot.png", channel="HR
 - Run the demo notebook:
 
 ```bash
-jupyter notebook examples/fhr_monitor_analyzer_demo.ipynb
+python -m ipykernel install --user --name fhr-monitor-analyzer --display-name "Python (fhr-monitor-analyzer)"
+python -m jupyter notebook examples/fhr_monitor_analyzer_demo.ipynb
 ```
+
+- In Jupyter, select the `Python (fhr-monitor-analyzer)` kernel.
 
 ## Trigger GitHub Actions And Publish
 
@@ -91,4 +96,3 @@ git push origin v0.1.0
 ```
 
 - The publish workflow builds Linux, macOS, and Windows wheels plus an sdist.
-
