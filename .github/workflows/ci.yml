@@ -22,7 +22,9 @@ jobs:
         run: cargo fmt --check
       - name: Run Rust tests
         run: cargo test
-      - name: Install local Python package
-        run: maturin develop --features python
+      - name: Build local Python wheel
+        run: maturin build --features python --out dist
+      - name: Install local Python wheel
+        run: python -m pip install dist/*.whl
       - name: Run Python tests
         run: pytest tests/python
