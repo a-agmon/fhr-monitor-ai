@@ -151,7 +151,7 @@ fhr-cli <csv-path> [--channel HR1|HR2|HR3] [--window-min 10..30] [--step-sec N] 
 | `--step-sec N` | No | `60` | Step size between rolling windows when `--window-min` is supplied. For example, `--window-min 30 --step-sec 60` simulates one analysis every minute. |
 | `--last-only` | No | false | Prints only the final analyzed window. Useful when testing a long CSV but only caring about the current-state result. |
 | `--json` | No | false | Emits JSON instead of the human-readable text report. Use this for downstream integration tests. |
-| `--ga-weeks N` | No | omitted | Stores gestational age in the config for future gestational-age-specific logic. The current prototype does not yet change thresholds based on this value. |
+| `--ga-weeks N` | No | omitted | Gestational age in completed weeks. Values below 32 use the preterm acceleration threshold: 10 bpm for 10 seconds. Omitted or 32+ uses 15 bpm for 15 seconds. |
 | `-h`, `--help` | No | false | Prints CLI usage. |
 
 Default chunk mode:
@@ -236,12 +236,14 @@ The graph has three panels: fetal HR with the 110-160 bpm normal baseline band, 
 The goal is to reduce alert fatigue. The analyzer should not fire the same kind of interruptive alert for every Category II feature. It should separate:
 
 - `none`: no interruptive alert
-- `info`: non-urgent Category II context
-- `warning`: high-risk Category II or concerning trend
+- `warning`: concerning Category II pattern that warrants review
+- `urgent_review`: high-risk Category II pattern that should stand out above routine warnings
 - `critical`: possible Category III
 - `data_quality`: the tracing cannot be interpreted reliably
 
 Even when no alert fires, the service should return all detected features and limitations so the UI can show useful context.
+
+The user-facing explanation of categories and alert rules is in [docs/alerting_strategy.md](docs/alerting_strategy.md).
 
 ## Numeric Features
 
@@ -281,7 +283,7 @@ Event metrics:
 
 | Metric | Value assigned |
 | --- | --- |
-| `acceleration_count` | Count of detected abrupt increases at least 15 bpm above baseline lasting at least 15 seconds and less than 2 minutes. The current prototype assumes 32 weeks or later unless gestational-age-specific logic is added. |
+| `acceleration_count` | Count of detected abrupt increases lasting less than 2 minutes. At 32 weeks or later, or when gestational age is unknown, the threshold is at least 15 bpm above baseline for at least 15 seconds. Before 32 weeks, the threshold is at least 10 bpm above baseline for at least 10 seconds. |
 | `deceleration_count` | Count of detected decreases at least 15 bpm below baseline lasting at least 15 seconds. |
 | `prolonged_deceleration_count` | Count of decelerations lasting at least 2 minutes and less than 10 minutes. |
 | `total_deceleration_seconds` | Sum of detected deceleration durations in the analysis window. |
@@ -291,7 +293,7 @@ Event metrics:
 | `contractions_per_10_min` | Contraction count normalized to a 10-minute rate. |
 | `tachysystole` | `true` only when a 30-minute contraction view is available and the detector finds more than 15 contractions in that 30-minute span, equivalent to more than 5 contractions per 10 minutes on average. Shorter chunks return `null` because the check is incomplete. |
 
-High-risk Category II features currently surfaced separately from the category include absent variability, persistent minimal variability, change from normal baseline to tachycardia, recurrent late decelerations, recurrent variable decelerations, more than one prolonged deceleration, and possible maternal HR capture.
+High-risk Category II features currently surfaced separately from the category include absent variability, persistent minimal variability, marked variability, change from normal baseline to tachycardia, recurrent late decelerations, recurrent variable decelerations, gradual deceleration with absent or minimal variability, severe variable deceleration, deep deceleration nadir below 80 bpm, high deceleration burden, tachysystole, more than one prolonged deceleration, and possible maternal HR capture.
 
 References for the terminology include ACOG's [fetal tracing summary](https://www.acog.org/community/districts-and-sections/district-iv/whats-new/countdown-to-intern-year-week-4-fetal-heart-tracings) and [Clinical Practice Guideline No. 10](https://www.acog.org/clinical/clinical-guidance/clinical-practice-guideline/articles/2025/10/intrapartum-fetal-heart-rate-monitoring-interpretation-and-management) on intrapartum fetal heart-rate monitoring.
 

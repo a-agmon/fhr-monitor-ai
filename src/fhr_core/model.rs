@@ -266,8 +266,8 @@ impl CategoryClassification {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AlertLevel {
     None,
-    Info,
     Warning,
+    UrgentReview,
     Critical,
     DataQuality,
 }
@@ -276,8 +276,8 @@ impl AlertLevel {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::None => "none",
-            Self::Info => "info",
             Self::Warning => "warning",
+            Self::UrgentReview => "urgent_review",
             Self::Critical => "critical",
             Self::DataQuality => "data_quality",
         }

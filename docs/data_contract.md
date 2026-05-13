@@ -123,7 +123,7 @@ All metadata fields are optional. These fields are not required for the current 
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `gestational_age_weeks` | number or `null` | Used later for gestational-age-specific acceleration thresholds. |
+| `gestational_age_weeks` | number or `null` | Used for acceleration thresholds. Before 32 weeks, acceleration detection uses 10 bpm for 10 seconds; otherwise it uses 15 bpm for 15 seconds. |
 | `labor_stage` | string or `null` | Example: `first_stage`, `second_stage`, `unknown`. |
 | `oxytocin_running` | boolean or `null` | Useful for interpreting tachysystole-related alerts. |
 | `recent_epidural` | boolean or `null` | Useful context for hypotension-related tracing changes. |
@@ -164,6 +164,18 @@ The service should return both the classification and the evidence behind it:
 }
 ```
 
-The alerting system should interrupt clinicians only for high-risk Category II, possible Category III, or important data-quality failures. Lower-risk Category II findings should still be returned in the response for context and audit.
+The alerting system should interrupt clinicians only for concerning Category II patterns, higher-risk Category II patterns, possible Category III, or important data-quality failures. Lower-risk Category II findings should still be returned in the response for context and audit.
+
+Alert levels are:
+
+| Level | Meaning |
+| --- | --- |
+| `none` | No interruptive alert; structured findings are still returned. |
+| `warning` | Category II pattern warrants clinician review. |
+| `urgent_review` | Higher-risk Category II pattern should stand out above routine warnings. |
+| `critical` | Possible Category III pattern. |
+| `data_quality` | Tracing cannot be interpreted reliably enough. |
+
+The full user-facing explanation is in [`docs/alerting_strategy.md`](alerting_strategy.md).
 
 The `features` object is deliberately numeric so other systems can trend fetal-rate status without parsing alert text. It should be returned even when no alert fires or the tracing is unclassified due to signal quality.

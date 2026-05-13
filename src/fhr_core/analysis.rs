@@ -6,6 +6,12 @@ use super::time::{seconds_between, whole_seconds_between};
 const TEN_MIN_MS: i64 = 10 * 60 * 1_000;
 const TWENTY_MIN_MS: i64 = 20 * 60 * 1_000;
 const THIRTY_MIN_MS: i64 = 30 * 60 * 1_000;
+const DEEP_DECELERATION_NADIR_BPM: f64 = 80.0;
+const HIGH_DECELERATION_BURDEN_SECONDS: f64 = 60.0;
+const SEVERE_VARIABLE_DEPTH_BPM: f64 = 60.0;
+const SEVERE_VARIABLE_DURATION_SECONDS: f64 = 60.0;
+const EARLY_DECELERATION_PEAK_TOLERANCE_MS: i64 = 5_000;
+const LATE_DECELERATION_DELAY_MS: i64 = 5_000;
 
 #[derive(Clone, Debug)]
 struct SecondSample {
@@ -186,7 +192,15 @@ fn analyze_window(
     // to know or declare whether they sent exactly 20 or 30 minutes.
     let eval_start = (window_end_ms - TWENTY_MIN_MS).max(window_start_ms);
     let accelerations = baseline_bpm
-        .map(|baseline| detect_accelerations(&seconds, baseline as f64, eval_start, window_end_ms))
+        .map(|baseline| {
+            detect_accelerations(
+                &seconds,
+                baseline as f64,
+                eval_start,
+                window_end_ms,
+                config.gestational_age_weeks,
+            )
+        })
         .unwrap_or_default();
     let mut decelerations = baseline_bpm
         .map(|baseline| detect_decelerations(&seconds, baseline as f64, eval_start, window_end_ms))
@@ -245,11 +259,16 @@ fn analyze_window(
                 .to_string(),
         );
     }
+    apply_tachysystole_context(classification, &toco, &mut reasons, &mut high_risk_features);
+    sort_and_dedup(&mut reasons);
+    sort_and_dedup(&mut high_risk_features);
+    sort_and_dedup(&mut protective_features);
 
     let alert_level = choose_alert_level(
         classification,
         &high_risk_features,
         &protective_features,
+        &features,
         &data_quality,
     );
 
@@ -515,15 +534,17 @@ fn detect_accelerations(
     baseline: f64,
     start_ms: i64,
     end_ms: i64,
+    gestational_age_weeks: Option<u8>,
 ) -> Vec<AccelerationEvent> {
-    let threshold = baseline + 15.0;
+    let threshold = baseline + acceleration_threshold_bpm(gestational_age_weeks);
+    let minimum_duration_seconds = acceleration_minimum_duration_seconds(gestational_age_weeks);
     detect_segments(seconds, start_ms, end_ms, |sample| {
         sample.fhr.is_some_and(|value| value >= threshold)
     })
     .into_iter()
     .filter_map(|segment| {
         let duration = seconds_between(segment.start_ms, segment.end_ms);
-        if !(15.0..120.0).contains(&duration) {
+        if !(minimum_duration_seconds..120.0).contains(&duration) {
             return None;
         }
         let peak = seconds
@@ -531,16 +552,35 @@ fn detect_accelerations(
             .filter(|sample| {
                 sample.timestamp_ms >= segment.start_ms && sample.timestamp_ms <= segment.end_ms
             })
-            .filter_map(|sample| sample.fhr)
-            .max_by(f64::total_cmp)?;
+            .filter_map(|sample| sample.fhr.map(|value| (sample.timestamp_ms, value)))
+            .max_by(|a, b| a.1.total_cmp(&b.1))?;
+        if seconds_between(segment.start_ms, peak.0) >= 30.0 {
+            return None;
+        }
         Some(AccelerationEvent {
             start: label_for_time(seconds, segment.start_ms),
             end: label_for_time(seconds, segment.end_ms),
             duration_seconds: duration,
-            peak_bpm: peak,
+            peak_bpm: peak.1,
         })
     })
     .collect()
+}
+
+fn acceleration_threshold_bpm(gestational_age_weeks: Option<u8>) -> f64 {
+    if gestational_age_weeks.is_some_and(|weeks| weeks < 32) {
+        10.0
+    } else {
+        15.0
+    }
+}
+
+fn acceleration_minimum_duration_seconds(gestational_age_weeks: Option<u8>) -> f64 {
+    if gestational_age_weeks.is_some_and(|weeks| weeks < 32) {
+        10.0
+    } else {
+        15.0
+    }
 }
 
 fn detect_decelerations(
@@ -807,9 +847,9 @@ fn associate_decelerations_with_contractions(
             }
         }
         if let Some(peak) = best_peak {
-            if (decel_nadir - peak).abs() <= 15_000 {
+            if (decel_nadir - peak).abs() <= EARLY_DECELERATION_PEAK_TOLERANCE_MS {
                 decel.kind = DecelerationKind::Early;
-            } else if decel_nadir > peak + 5_000 {
+            } else if decel_nadir > peak + LATE_DECELERATION_DELAY_MS {
                 decel.kind = DecelerationKind::Late;
             }
         }
@@ -944,6 +984,9 @@ fn find_risk_features(
     if variability_class == Some(VariabilityClass::Absent) {
         high_risk_features.push("absent variability".to_string());
     }
+    if variability_class == Some(VariabilityClass::Marked) {
+        high_risk_features.push("marked variability".to_string());
+    }
     if persistent_minimal_variability(seconds, baseline_bpm, window_start_ms, window_end_ms) {
         high_risk_features
             .push("persistent minimal variability for at least 20 minutes".to_string());
@@ -958,6 +1001,20 @@ fn find_risk_features(
     }
     if recurrent_deceleration_kind(decelerations, toco, DecelerationKind::Variable) {
         high_risk_features.push("recurrent variable decelerations".to_string());
+    }
+    if has_gradual_deceleration_with_low_variability(decelerations, variability_class) {
+        high_risk_features
+            .push("gradual deceleration with absent or minimal variability".to_string());
+    }
+    if has_severe_variable_deceleration(decelerations) {
+        high_risk_features.push("severe variable deceleration".to_string());
+    }
+    if has_deep_deceleration(decelerations) {
+        high_risk_features.push("deep deceleration nadir below 80 bpm".to_string());
+    }
+    if total_deceleration_seconds(decelerations) >= HIGH_DECELERATION_BURDEN_SECONDS {
+        high_risk_features
+            .push("high deceleration burden: at least 60 seconds in deceleration".to_string());
     }
     let prolonged_count = decelerations
         .iter()
@@ -979,6 +1036,7 @@ fn choose_alert_level(
     classification: CategoryClassification,
     high_risk_features: &[String],
     protective_features: &[String],
+    features: &NumericFeatures,
     data_quality: &DataQuality,
 ) -> AlertLevel {
     if data_quality.fetal_usable_ratio < 0.50 {
@@ -990,13 +1048,103 @@ fn choose_alert_level(
     if classification == CategoryClassification::CategoryIII {
         return AlertLevel::Critical;
     }
+    if should_escalate_to_urgent_review(high_risk_features, features) {
+        return AlertLevel::UrgentReview;
+    }
     if !high_risk_features.is_empty() {
         return AlertLevel::Warning;
     }
-    if classification == CategoryClassification::CategoryII && protective_features.is_empty() {
-        return AlertLevel::Info;
+    if classification == CategoryClassification::CategoryII
+        && !has_moderate_variability_protection(protective_features)
+    {
+        return AlertLevel::Warning;
     }
     AlertLevel::None
+}
+
+fn should_escalate_to_urgent_review(
+    high_risk_features: &[String],
+    features: &NumericFeatures,
+) -> bool {
+    let has_feature = |target: &str| high_risk_features.iter().any(|feature| feature == target);
+    if has_feature("absent variability")
+        || has_feature("persistent minimal variability for at least 20 minutes")
+        || has_feature("recurrent late decelerations")
+        || has_feature("gradual deceleration with absent or minimal variability")
+        || has_feature("tachysystole with high-risk Category II features")
+        || has_feature("more than one prolonged deceleration")
+    {
+        return true;
+    }
+
+    let deep_or_high_burden = features
+        .deepest_deceleration_nadir_bpm
+        .is_some_and(|nadir| nadir < DEEP_DECELERATION_NADIR_BPM)
+        || features.total_deceleration_seconds >= HIGH_DECELERATION_BURDEN_SECONDS;
+    has_feature("recurrent variable decelerations") && deep_or_high_burden
+}
+
+fn has_moderate_variability_protection(protective_features: &[String]) -> bool {
+    protective_features
+        .iter()
+        .any(|feature| feature == "moderate variability")
+}
+
+fn has_deep_deceleration(decelerations: &[DecelerationEvent]) -> bool {
+    decelerations
+        .iter()
+        .any(|event| event.nadir_bpm < DEEP_DECELERATION_NADIR_BPM)
+}
+
+fn total_deceleration_seconds(decelerations: &[DecelerationEvent]) -> f64 {
+    decelerations
+        .iter()
+        .map(|event| event.duration_seconds)
+        .sum()
+}
+
+fn has_severe_variable_deceleration(decelerations: &[DecelerationEvent]) -> bool {
+    decelerations.iter().any(|event| {
+        event.kind == DecelerationKind::Variable
+            && (event.nadir_bpm < DEEP_DECELERATION_NADIR_BPM
+                || event.depth_bpm >= SEVERE_VARIABLE_DEPTH_BPM
+                || event.duration_seconds >= SEVERE_VARIABLE_DURATION_SECONDS)
+    })
+}
+
+fn has_gradual_deceleration_with_low_variability(
+    decelerations: &[DecelerationEvent],
+    variability_class: Option<VariabilityClass>,
+) -> bool {
+    matches!(
+        variability_class,
+        Some(VariabilityClass::Absent | VariabilityClass::Minimal)
+    ) && decelerations
+        .iter()
+        .any(|event| event.kind == DecelerationKind::GradualUnclassified)
+}
+
+fn apply_tachysystole_context(
+    classification: CategoryClassification,
+    toco: &TocoSummary,
+    reasons: &mut Vec<String>,
+    high_risk_features: &mut Vec<String>,
+) {
+    if toco.tachysystole != Some(true) {
+        return;
+    }
+
+    reasons.push("tachysystole".to_string());
+    if classification == CategoryClassification::CategoryII && !high_risk_features.is_empty() {
+        high_risk_features.push("tachysystole with high-risk Category II features".to_string());
+    } else {
+        high_risk_features.push("tachysystole".to_string());
+    }
+}
+
+fn sort_and_dedup(values: &mut Vec<String>) {
+    values.sort();
+    values.dedup();
 }
 
 fn calculate_limitations(
@@ -1015,6 +1163,11 @@ fn calculate_limitations(
     if duration_seconds < 20.0 * 60.0 {
         limitations.push(
             "less than 20 minutes: recurrent deceleration assessment is incomplete".to_string(),
+        );
+    } else if toco.contractions.len() < 2 {
+        limitations.push(
+            "fewer than two detected contractions: recurrent deceleration assessment is limited"
+                .to_string(),
         );
     }
     if duration_seconds < 30.0 * 60.0 {
@@ -1700,4 +1853,245 @@ fn escape_json(value: &str) -> String {
         .replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\n', "\\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn good_quality() -> DataQuality {
+        DataQuality {
+            expected_seconds: 600,
+            raw_samples: 600,
+            fetal_usable_seconds: 570,
+            fetal_usable_ratio: 0.95,
+            maternal_usable_ratio: 0.80,
+            toco_usable_ratio: 1.0,
+            suspected_maternal_capture_ratio: 0.01,
+        }
+    }
+
+    fn base_features() -> NumericFeatures {
+        NumericFeatures {
+            fetal_hr_min_bpm: None,
+            fetal_hr_p05_bpm: None,
+            fetal_hr_mean_bpm: None,
+            fetal_hr_median_bpm: None,
+            fetal_hr_p95_bpm: None,
+            fetal_hr_max_bpm: None,
+            fetal_hr_std_dev_bpm: None,
+            baseline_delta_mean_bpm: None,
+            fetal_hr_seconds_below_110: 0,
+            fetal_hr_seconds_110_to_160: 0,
+            fetal_hr_seconds_above_160: 0,
+            fetal_hr_percent_below_110: 0.0,
+            fetal_hr_percent_110_to_160: 0.0,
+            fetal_hr_percent_above_160: 0.0,
+            acceleration_count: 0,
+            deceleration_count: 0,
+            prolonged_deceleration_count: 0,
+            total_deceleration_seconds: 0.0,
+            deepest_deceleration_nadir_bpm: None,
+            max_deceleration_depth_bpm: None,
+            contraction_count: 0,
+            contractions_per_10_min: 0.0,
+            toco_mean: None,
+            toco_max: None,
+            maternal_hr_mean_bpm: None,
+            fetal_maternal_mean_difference_bpm: None,
+        }
+    }
+
+    fn empty_toco(tachysystole: Option<bool>) -> TocoSummary {
+        TocoSummary {
+            contractions: Vec::new(),
+            contractions_per_10_min: 0.0,
+            tachysystole,
+        }
+    }
+
+    fn second_samples(values: &[f64]) -> Vec<SecondSample> {
+        values
+            .iter()
+            .enumerate()
+            .map(|(idx, value)| SecondSample {
+                timestamp_ms: idx as i64 * 1_000,
+                timestamp: format!("2026-01-01 00:00:{idx:02}.000"),
+                fhr: Some(*value),
+                hrm: None,
+                toco: Some(10.0),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn moderate_category_ii_without_high_risk_stays_non_alerting() {
+        let alert = choose_alert_level(
+            CategoryClassification::CategoryII,
+            &[],
+            &[
+                "moderate variability".to_string(),
+                "accelerations present".to_string(),
+            ],
+            &base_features(),
+            &good_quality(),
+        );
+
+        assert_eq!(alert, AlertLevel::None);
+    }
+
+    #[test]
+    fn accelerations_alone_do_not_suppress_category_ii_warning() {
+        let alert = choose_alert_level(
+            CategoryClassification::CategoryII,
+            &[],
+            &["accelerations present".to_string()],
+            &base_features(),
+            &good_quality(),
+        );
+
+        assert_eq!(alert, AlertLevel::Warning);
+    }
+
+    #[test]
+    fn marked_variability_triggers_warning() {
+        let alert = choose_alert_level(
+            CategoryClassification::CategoryII,
+            &["marked variability".to_string()],
+            &["accelerations present".to_string()],
+            &base_features(),
+            &good_quality(),
+        );
+
+        assert_eq!(alert, AlertLevel::Warning);
+    }
+
+    #[test]
+    fn recurrent_variables_with_deep_deceleration_escalate_to_urgent_review() {
+        let mut features = base_features();
+        features.deepest_deceleration_nadir_bpm = Some(79.0);
+
+        let alert = choose_alert_level(
+            CategoryClassification::CategoryII,
+            &["recurrent variable decelerations".to_string()],
+            &[
+                "moderate variability".to_string(),
+                "accelerations present".to_string(),
+            ],
+            &features,
+            &good_quality(),
+        );
+
+        assert_eq!(alert, AlertLevel::UrgentReview);
+    }
+
+    #[test]
+    fn tachysystole_with_high_risk_category_ii_escalates_to_urgent_review() {
+        let mut reasons = Vec::new();
+        let mut high_risk = vec!["marked variability".to_string()];
+        apply_tachysystole_context(
+            CategoryClassification::CategoryII,
+            &empty_toco(Some(true)),
+            &mut reasons,
+            &mut high_risk,
+        );
+
+        let alert = choose_alert_level(
+            CategoryClassification::CategoryII,
+            &high_risk,
+            &["accelerations present".to_string()],
+            &base_features(),
+            &good_quality(),
+        );
+
+        assert!(reasons.contains(&"tachysystole".to_string()));
+        assert!(
+            high_risk.contains(&"tachysystole with high-risk Category II features".to_string())
+        );
+        assert_eq!(alert, AlertLevel::UrgentReview);
+    }
+
+    #[test]
+    fn tachysystole_alone_triggers_warning() {
+        let mut reasons = Vec::new();
+        let mut high_risk = Vec::new();
+        apply_tachysystole_context(
+            CategoryClassification::CategoryI,
+            &empty_toco(Some(true)),
+            &mut reasons,
+            &mut high_risk,
+        );
+
+        let alert = choose_alert_level(
+            CategoryClassification::CategoryI,
+            &high_risk,
+            &["moderate variability".to_string()],
+            &base_features(),
+            &good_quality(),
+        );
+
+        assert_eq!(high_risk, vec!["tachysystole".to_string()]);
+        assert_eq!(alert, AlertLevel::Warning);
+    }
+
+    #[test]
+    fn preterm_acceleration_uses_ten_by_ten_threshold() {
+        let mut values = vec![130.0; 40];
+        for value in values.iter_mut().take(20).skip(10) {
+            *value = 140.0;
+        }
+        let seconds = second_samples(&values);
+
+        let term = detect_accelerations(&seconds, 130.0, 0, 39_000, Some(32));
+        let preterm = detect_accelerations(&seconds, 130.0, 0, 39_000, Some(31));
+
+        assert!(term.is_empty());
+        assert_eq!(preterm.len(), 1);
+    }
+
+    #[test]
+    fn post_peak_gradual_deceleration_is_late_outside_small_tolerance() {
+        let mut decelerations = vec![DecelerationEvent {
+            start: "2026-01-01 00:00:00.000".to_string(),
+            end: "2026-01-01 00:01:00.000".to_string(),
+            duration_seconds: 60.0,
+            nadir_bpm: 90.0,
+            depth_bpm: 40.0,
+            onset_to_nadir_seconds: 24.0,
+            kind: DecelerationKind::GradualUnclassified,
+        }];
+        let contractions = vec![ContractionEvent {
+            start: "2026-01-01 00:00:00.000".to_string(),
+            peak: "2026-01-01 00:00:10.000".to_string(),
+            end: "2026-01-01 00:00:30.000".to_string(),
+            duration_seconds: 30.0,
+            peak_toco: 60.0,
+        }];
+
+        associate_decelerations_with_contractions(&mut decelerations, &contractions);
+
+        assert_eq!(decelerations[0].kind, DecelerationKind::Late);
+    }
+
+    #[test]
+    fn gradual_deceleration_with_low_variability_is_high_risk() {
+        let decelerations = vec![DecelerationEvent {
+            start: "2026-01-01 00:00:00.000".to_string(),
+            end: "2026-01-01 00:01:00.000".to_string(),
+            duration_seconds: 60.0,
+            nadir_bpm: 90.0,
+            depth_bpm: 40.0,
+            onset_to_nadir_seconds: 35.0,
+            kind: DecelerationKind::GradualUnclassified,
+        }];
+
+        assert!(has_gradual_deceleration_with_low_variability(
+            &decelerations,
+            Some(VariabilityClass::Minimal)
+        ));
+        assert!(!has_gradual_deceleration_with_low_variability(
+            &decelerations,
+            Some(VariabilityClass::Moderate)
+        ));
+    }
 }
