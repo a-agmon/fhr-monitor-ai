@@ -83,6 +83,8 @@ python -m jupyter notebook examples/fhr_monitor_analyzer_demo.ipynb
 ## Trigger GitHub Actions And Publish
 
 - CI runs automatically on push to `main` and on pull requests.
+- The PyPI publish workflow runs automatically only when you push a version tag like `v0.1.0`.
+- The TestPyPI publish workflow is manual.
 
 - Publish to TestPyPI:
   - In GitHub, open Actions.
@@ -92,11 +94,16 @@ python -m jupyter notebook examples/fhr_monitor_analyzer_demo.ipynb
 - Publish to PyPI:
   - Configure PyPI Trusted Publishing for the `pypi` environment.
   - Update the version in `pyproject.toml` and `Cargo.toml`.
-  - Push a version tag:
+  - Commit and push the version change to `main`; this runs CI.
+  - Push a matching version tag; this runs the PyPI publish workflow:
 
 ```bash
+git add pyproject.toml Cargo.toml
+git commit -m "Release v0.1.0"
+git push origin main
+
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-- The publish workflow builds Linux, macOS, and Windows wheels plus an sdist.
+- The publish workflow builds Linux, macOS, and Windows wheels plus an sdist, then publishes to PyPI if Trusted Publishing is configured correctly.
