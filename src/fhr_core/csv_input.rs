@@ -7,6 +7,10 @@ use super::time::parse_monitor_timestamp;
 pub fn read_monitor_csv(path: impl AsRef<Path>) -> Result<InputData, String> {
     let content = fs::read_to_string(path.as_ref())
         .map_err(|err| format!("failed reading {}: {err}", path.as_ref().display()))?;
+    read_monitor_csv_str(&content)
+}
+
+pub fn read_monitor_csv_str(content: &str) -> Result<InputData, String> {
     let mut lines = content.lines();
     let header = lines
         .next()
@@ -88,4 +92,44 @@ fn parse_optional_number(fields: &[&str], idx: Option<usize>) -> Option<f64> {
         return None;
     }
     raw.parse::<f64>().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_monitor_csv_from_string() {
+        let csv = "\
+Date,HR1,HRM,TOCO
+2026-04-30 19:27:08.099,130,98,12
+2026-04-30 19:27:09.099,132,99,14
+";
+
+        let input = read_monitor_csv_str(csv).expect("valid CSV");
+
+        assert_eq!(input.samples.len(), 2);
+        assert_eq!(input.samples[0].hr1, Some(130.0));
+        assert_eq!(input.samples[1].hrm, Some(99.0));
+        assert_eq!(input.samples[1].toco, Some(14.0));
+        assert_eq!(input.out_of_order_rows, 0);
+        assert_eq!(input.duplicate_timestamps, 0);
+    }
+
+    #[test]
+    fn reports_ordering_and_duplicate_metadata_from_string() {
+        let csv = "\
+Date,HR1
+2026-04-30 19:27:10.000,130
+2026-04-30 19:27:09.000,131
+2026-04-30 19:27:09.000,132
+";
+
+        let input = read_monitor_csv_str(csv).expect("valid CSV");
+
+        assert_eq!(input.samples.len(), 3);
+        assert_eq!(input.out_of_order_rows, 1);
+        assert_eq!(input.duplicate_timestamps, 1);
+        assert_eq!(input.samples[0].hr1, Some(131.0));
+    }
 }

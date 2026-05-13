@@ -1,8 +1,9 @@
 pub fn parse_monitor_timestamp(value: &str) -> Result<i64, String> {
-    let value = value.trim();
-    let (date, time) = value
+    let normalized = value.trim().trim_end_matches('Z').replace('T', " ");
+    let (date, time) = normalized
         .split_once(' ')
-        .ok_or_else(|| format!("timestamp is missing space separator: {value}"))?;
+        .ok_or_else(|| format!("timestamp is missing date/time separator: {value}"))?;
+    let (time, offset_minutes) = split_time_and_offset(time, value)?;
     let mut d = date.split('-');
     let year: i32 = parse_part(d.next(), "year", value)?;
     let month: u32 = parse_part(d.next(), "month", value)?;
@@ -31,7 +32,37 @@ pub fn parse_monitor_timestamp(value: &str) -> Result<i64, String> {
 
     let days = days_from_civil(year, month, day);
     let seconds = days * 86_400 + hour as i64 * 3_600 + minute as i64 * 60 + second as i64;
-    Ok(seconds * 1_000 + millis as i64)
+    Ok(seconds * 1_000 + millis as i64 - offset_minutes * 60_000)
+}
+
+fn split_time_and_offset<'a>(time: &'a str, original: &str) -> Result<(&'a str, i64), String> {
+    if time.len() < 2 {
+        return Ok((time, 0));
+    }
+    let Some(offset_idx) = time[1..]
+        .find(|ch| ch == '+' || ch == '-')
+        .map(|idx| idx + 1)
+    else {
+        return Ok((time, 0));
+    };
+    let (clock, offset) = time.split_at(offset_idx);
+    let sign = if offset.starts_with('-') { -1 } else { 1 };
+    let offset = &offset[1..];
+    let (hours, minutes) = offset
+        .split_once(':')
+        .ok_or_else(|| format!("invalid timezone offset in timestamp: {original}"))?;
+    let hours: i64 = hours
+        .parse()
+        .map_err(|_| format!("invalid timezone offset hour in timestamp: {original}"))?;
+    let minutes: i64 = minutes
+        .parse()
+        .map_err(|_| format!("invalid timezone offset minute in timestamp: {original}"))?;
+    if hours > 23 || minutes > 59 {
+        return Err(format!(
+            "timezone offset out of range in timestamp: {original}"
+        ));
+    }
+    Ok((clock, sign * (hours * 60 + minutes)))
 }
 
 fn parse_part<T>(part: Option<&str>, name: &str, timestamp: &str) -> Result<T, String>

@@ -1,8 +1,10 @@
 use std::env;
 use std::process;
 
-use fhr_monitor::fhr_core::report_as_json;
-use fhr_monitor::{AnalysisConfig, FetalChannel, analyze_rolling_windows, read_monitor_csv};
+use fhr_monitor_analyzer::fhr_core::report_as_json;
+use fhr_monitor_analyzer::{
+    AnalysisConfig, FetalChannel, analyze_rolling_windows, read_monitor_csv,
+};
 
 fn main() {
     if let Err(err) = run() {
@@ -93,13 +95,13 @@ fn parse_u32_arg(args: &[String], idx: usize, name: &str) -> Result<u32, String>
 
 fn print_usage() {
     println!(
-        "Usage: fhr-cli <csv-path> [--channel HR1|HR2|HR3] [--window-min 10..30] [--step-sec N] [--last-only] [--json]
+        "Usage: fhr-monitor-analyzer-cli <csv-path> [--channel HR1|HR2|HR3] [--window-min 10..30] [--step-sec N] [--last-only] [--json] [--ga-weeks N]
 
 By default, the CLI analyzes the available chunk and infers its duration. Use --window-min only for rolling-window replay."
     );
 }
 
-fn print_text_report(path: &str, report: &fhr_monitor::AnalysisReport) {
+fn print_text_report(path: &str, report: &fhr_monitor_analyzer::AnalysisReport) {
     println!("file: {path}");
     println!(
         "input: rows={} start={} end={} duration={:.1} min out_of_order={} duplicate_ts={}",

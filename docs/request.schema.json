@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/a-agmon/fhr-monitor-ai/docs/request.schema.json",
-  "title": "FHR Monitor Analysis Request",
+  "$id": "https://github.com/a-agmon/fhr-monitor-analyzer/docs/request.schema.json",
+  "title": "FHR Monitor Analyzer Request",
   "type": "object",
   "additionalProperties": false,
   "required": ["episode_id", "sent_at", "samples"],

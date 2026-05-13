@@ -1,4 +1,4 @@
-# fhr-monitor-ai
+# fhr-monitor-analyzer
 
 Decision-support prototype for fetal heart-rate monitoring. The current implementation focuses on explainable feature extraction and alert triage for fetal heart tracing chunks, with Category II detection as the first target.
 
@@ -120,19 +120,19 @@ cargo test
 Analyze whatever chunk is present in a CSV:
 
 ```bash
-cargo run --bin fhr-cli -- /path/to/monitor.csv --channel HR1
+cargo run --bin fhr-monitor-analyzer-cli -- /path/to/monitor.csv --channel HR1
 ```
 
 Return JSON:
 
 ```bash
-cargo run --bin fhr-cli -- /path/to/monitor.csv --channel HR1 --json
+cargo run --bin fhr-monitor-analyzer-cli -- /path/to/monitor.csv --channel HR1 --json
 ```
 
 Replay a file with fixed rolling windows:
 
 ```bash
-cargo run --bin fhr-cli -- /path/to/monitor.csv --channel HR1 --window-min 30 --step-sec 60
+cargo run --bin fhr-monitor-analyzer-cli -- /path/to/monitor.csv --channel HR1 --window-min 30 --step-sec 60
 ```
 
 ### CLI Flags
@@ -140,7 +140,7 @@ cargo run --bin fhr-cli -- /path/to/monitor.csv --channel HR1 --window-min 30 --
 The CLI currently accepts CSV monitor exports and is mainly for local replay/testing of the core logic. The future service should use the JSON request contract documented above.
 
 ```bash
-fhr-cli <csv-path> [--channel HR1|HR2|HR3] [--window-min 10..30] [--step-sec N] [--last-only] [--json] [--ga-weeks N]
+fhr-monitor-analyzer-cli <csv-path> [--channel HR1|HR2|HR3] [--window-min 10..30] [--step-sec N] [--last-only] [--json] [--ga-weeks N]
 ```
 
 | Argument or flag | Required | Default | Meaning |
@@ -157,30 +157,81 @@ fhr-cli <csv-path> [--channel HR1|HR2|HR3] [--window-min 10..30] [--step-sec N] 
 Default chunk mode:
 
 ```bash
-cargo run --bin fhr-cli -- /path/to/monitor.csv --channel HR1 --json
+cargo run --bin fhr-monitor-analyzer-cli -- /path/to/monitor.csv --channel HR1 --json
 ```
 
 Rolling replay mode:
 
 ```bash
-cargo run --bin fhr-cli -- /path/to/monitor.csv --channel HR1 --window-min 20 --step-sec 60
+cargo run --bin fhr-monitor-analyzer-cli -- /path/to/monitor.csv --channel HR1 --window-min 20 --step-sec 60
 ```
 
 Current-state only from a long CSV:
 
 ```bash
-cargo run --bin fhr-cli -- /path/to/monitor.csv --channel HR1 --last-only
+cargo run --bin fhr-monitor-analyzer-cli -- /path/to/monitor.csv --channel HR1 --last-only
+```
+
+## Python Package
+
+The Python package is named `fhr-monitor-analyzer` and imports as `fhr_monitor_analyzer`. The Python analysis APIs return JSON strings, matching the service/CLI output contract.
+
+Local development install:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip maturin pytest matplotlib
+maturin develop --features python
+```
+
+Python usage:
+
+```python
+import json
+import fhr_monitor_analyzer as fhr
+
+report_json = fhr.analyze_csv_file("/path/to/monitor.csv", channel="HR1")
+report = json.loads(report_json)
+
+request_json = """{"episode_id":"e1","sent_at":"2026-05-12T12:22:35.052Z","samples":[{"t":"2026-05-12T11:52:35.052Z","hr1":129,"hrm":101,"toco":33}]}"""
+report_json = fhr.analyze_json(request_json)
+```
+
+Python entry points:
+
+| Function | Input | Output |
+| --- | --- | --- |
+| `analyze_json(request_json)` | JSON request string following [docs/data_contract.md](docs/data_contract.md). | JSON report string. |
+| `analyze_csv(csv_text, ...)` | CSV text plus optional `channel`, `ga_weeks`, `window_min`, `step_sec`, and `last_only`. | JSON report string. |
+| `analyze_json_file(path)` | JSON request file. | JSON report string. |
+| `analyze_csv_file(path, ...)` | CSV monitor export file. | JSON report string. |
+
+Plotting is also available from the Python package:
+
+```python
+import fhr_monitor_analyzer as fhr
+
+fhr.plot_csv_file("/path/to/monitor.csv", output="monitor_plot.png", channel="HR1")
+```
+
+A runnable notebook demo is available at [examples/fhr_monitor_analyzer_demo.ipynb](examples/fhr_monitor_analyzer_demo.ipynb). It creates demo monitor data, reads it through the Python library, displays the JSON report, and renders the tracing diagram.
+
+For plotting-only installs, include the optional extra after release:
+
+```bash
+pip install "fhr-monitor-analyzer[plot]"
 ```
 
 ## Visualization Script
 
-The repository includes a Python plotting helper for quick visual review of monitor exports:
+The repository includes a Python plotting helper for quick visual review of monitor exports. The same plotting code is available as `fhr_monitor_analyzer.plot_csv` and `fhr_monitor_analyzer.plot_csv_file`.
 
 ```bash
 python3 scripts/plot_monitor_csv.py /path/to/monitor.csv --channel HR1 --output monitor_plot.png
 ```
 
-It requires Python 3 and `matplotlib`; optional plotting dependencies are listed in [requirements-plot.txt](requirements-plot.txt).
+It requires Python 3 and `matplotlib`; optional plotting dependencies are listed in [requirements-plot.txt](requirements-plot.txt) and in the package extra `fhr-monitor-analyzer[plot]`.
 
 Useful options:
 
@@ -303,8 +354,61 @@ References for the terminology include ACOG's [fetal tracing summary](https://ww
 src/fhr_core/      Reusable analysis module
 src/main.rs        CLI wrapper
 docs/              Data contract and design notes
+python/            Python package wrapper and plotting API
+examples/          Notebook and runnable examples
 scripts/           Local plotting and inspection helpers
+.github/workflows/ CI and Python publishing workflows
 ```
+
+Detailed architecture notes are in [docs/architecture.md](docs/architecture.md). The plan for wrapping the Rust core as a Python package is in [docs/python_library_plan.md](docs/python_library_plan.md).
+
+## Testing And Publishing
+
+Run Rust checks:
+
+```bash
+cargo fmt --check
+cargo test
+```
+
+Run Python checks locally:
+
+```bash
+python -m pip install --upgrade pip maturin pytest matplotlib
+maturin develop --features python
+pytest tests/python
+```
+
+Build local Python artifacts:
+
+```bash
+maturin build --release --features python --out dist
+```
+
+Publish to TestPyPI:
+
+1. Create a TestPyPI project named `fhr-monitor-analyzer`.
+2. Configure TestPyPI Trusted Publishing for this GitHub repository and the `testpypi` environment.
+3. Run the `Publish Python Package To TestPyPI` workflow manually from GitHub Actions.
+4. Test the package:
+
+```bash
+python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ fhr-monitor-analyzer
+python -c "import fhr_monitor_analyzer; print(fhr_monitor_analyzer.__all__)"
+```
+
+Publish to PyPI:
+
+1. Create the PyPI project named `fhr-monitor-analyzer`.
+2. Configure PyPI Trusted Publishing for this GitHub repository and the `pypi` environment.
+3. Push a version tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The `Publish Python Package` workflow builds wheels on Linux, macOS, and Windows, builds a source distribution, then publishes on tagged releases.
 
 ## Next Implementation Steps
 

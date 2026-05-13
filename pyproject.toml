@@ -1,0 +1,36 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "fhr-monitor-analyzer"
+version = "0.1.0"
+description = "Decision-support fetal heart-rate monitor analyzer backed by a Rust rules engine."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+  { name = "fhr-monitor-analyzer contributors" }
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Healthcare Industry",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Rust",
+  "Topic :: Scientific/Engineering :: Medical Science Apps."
+]
+dependencies = []
+
+[project.optional-dependencies]
+plot = ["matplotlib>=3.8"]
+dev = ["matplotlib>=3.8", "notebook>=7", "pytest>=8"]
+
+[tool.maturin]
+python-source = "python"
+module-name = "fhr_monitor_analyzer._native"
+features = ["python"]
