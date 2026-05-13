@@ -33,8 +33,7 @@ python -m pip install --upgrade pip maturin pytest matplotlib notebook ipykernel
 - Build/install Python package:
 
 ```bash
-maturin build --features python --out dist
-python -m pip install --force-reinstall dist/*.whl
+maturin develop --features python
 python -c "import fhr_monitor_analyzer; print(fhr_monitor_analyzer.__file__)"
 ```
 
@@ -50,32 +49,36 @@ maturin build --release --features python --out dist
 
 ```python
 import json
-import fhr_monitor_analyzer as fhr
+import fhr_monitor_analyzer as analyzer
 
-report_json = fhr.analyze_csv_file("/path/to/monitor.csv", channel="HR1")
+report_json = analyzer.analyze_csv_file("/path/to/monitor.csv", channel="HR1")
 report = json.loads(report_json)
 ```
 
 - Analyze service-style JSON:
 
 ```python
-report_json = fhr.analyze_json(request_json)
+report_json = analyzer.analyze_json(request_json)
 ```
 
 - Create a tracing diagram:
 
 ```python
-fhr.plot_csv_file("/path/to/monitor.csv", output="monitor_plot.png", channel="HR1")
+analyzer.plot_csv_file("/path/to/monitor.csv", output="monitor_plot.png", channel="HR1")
 ```
 
 - Run the demo notebook:
 
 ```bash
+source .venv/bin/activate
+python -c "import sys, fhr_monitor_analyzer; print(sys.executable); print(fhr_monitor_analyzer.__file__)"
 python -m ipykernel install --user --name fhr-monitor-analyzer --display-name "Python (fhr-monitor-analyzer)"
 python -m jupyter notebook examples/fhr_monitor_analyzer_demo.ipynb
 ```
 
-- In Jupyter, select the `Python (fhr-monitor-analyzer)` kernel.
+- In Jupyter, select the `Python (fhr-monitor-analyzer)` kernel and run the notebook from the first cell.
+- If import fails, run `import sys; print(sys.executable)` in a notebook cell. It should point to this repo's `.venv`.
+- Use `import fhr_monitor_analyzer as analyzer`; do not reuse the module alias as a numeric variable in the notebook.
 
 ## Trigger GitHub Actions And Publish
 
@@ -88,6 +91,7 @@ python -m jupyter notebook examples/fhr_monitor_analyzer_demo.ipynb
 
 - Publish to PyPI:
   - Configure PyPI Trusted Publishing for the `pypi` environment.
+  - Update the version in `pyproject.toml`.
   - Push a version tag:
 
 ```bash

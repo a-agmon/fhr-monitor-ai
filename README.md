@@ -182,31 +182,44 @@ Local development install:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip maturin pytest matplotlib notebook ipykernel
-maturin build --features python --out dist
-python -m pip install --force-reinstall dist/*.whl
+maturin develop --features python
 python -c "import sys, fhr_monitor_analyzer; print(sys.executable); print(fhr_monitor_analyzer.__file__)"
 ```
+
+`maturin develop --features python` installs the Rust extension into the active virtualenv. Use it for notebook and local development. If you specifically want wheel artifacts, run `maturin build --features python --out dist` and then `python -m pip install --force-reinstall dist/*.whl`.
 
 Notebook kernel setup:
 
 ```bash
+source .venv/bin/activate
+python -c "import sys, fhr_monitor_analyzer; print(sys.executable); print(fhr_monitor_analyzer.__file__)"
 python -m ipykernel install --user --name fhr-monitor-analyzer --display-name "Python (fhr-monitor-analyzer)"
 python -m jupyter notebook examples/fhr_monitor_analyzer_demo.ipynb
 ```
 
-In Jupyter, select the `Python (fhr-monitor-analyzer)` kernel. If `import fhr_monitor_analyzer` fails inside the notebook, run `import sys; print(sys.executable)` in a notebook cell and confirm it points at this repo's `.venv`.
+In Jupyter, select the `Python (fhr-monitor-analyzer)` kernel, then run the notebook from the first cell. If `import fhr_monitor_analyzer` fails inside the notebook, run `import sys; print(sys.executable)` in a notebook cell and confirm it points at this repo's `.venv`. If the path points to a different Python installation, change the notebook kernel to `Python (fhr-monitor-analyzer)` or reinstall the kernel while the repo virtualenv is active.
+
+Use a module alias that will not collide with data variables:
+
+```python
+import fhr_monitor_analyzer as analyzer
+
+report_json = analyzer.analyze_csv_file(csv_path, channel="HR1")
+```
+
+Avoid reusing that alias for numeric fetal heart-rate values in the notebook. For example, call sample values `fetal_hr`, not `analyzer` or `fhr`.
 
 Python usage:
 
 ```python
 import json
-import fhr_monitor_analyzer as fhr
+import fhr_monitor_analyzer as analyzer
 
-report_json = fhr.analyze_csv_file("/path/to/monitor.csv", channel="HR1")
+report_json = analyzer.analyze_csv_file("/path/to/monitor.csv", channel="HR1")
 report = json.loads(report_json)
 
 request_json = """{"episode_id":"e1","sent_at":"2026-05-12T12:22:35.052Z","samples":[{"t":"2026-05-12T11:52:35.052Z","hr1":129,"hrm":101,"toco":33}]}"""
-report_json = fhr.analyze_json(request_json)
+report_json = analyzer.analyze_json(request_json)
 ```
 
 Python entry points:
@@ -221,9 +234,9 @@ Python entry points:
 Plotting is also available from the Python package:
 
 ```python
-import fhr_monitor_analyzer as fhr
+import fhr_monitor_analyzer as analyzer
 
-fhr.plot_csv_file("/path/to/monitor.csv", output="monitor_plot.png", channel="HR1")
+analyzer.plot_csv_file("/path/to/monitor.csv", output="monitor_plot.png", channel="HR1")
 ```
 
 A runnable notebook demo is available at [examples/fhr_monitor_analyzer_demo.ipynb](examples/fhr_monitor_analyzer_demo.ipynb). It creates demo monitor data, reads it through the Python library, displays the JSON report, and renders the tracing diagram.
@@ -413,14 +426,24 @@ Publish to PyPI:
 
 1. Create the PyPI project named `fhr-monitor-analyzer`.
 2. Configure PyPI Trusted Publishing for this GitHub repository and the `pypi` environment.
-3. Push a version tag:
+3. Update the version in `pyproject.toml`.
+4. Commit and push the version change to `main`.
+5. Push a matching version tag:
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The `Publish Python Package` workflow builds wheels on Linux, macOS, and Windows, builds a source distribution, then publishes on tagged releases.
+6. Watch the `Publish Python Package` workflow in GitHub Actions.
+7. After it succeeds, verify the release from a clean environment:
+
+```bash
+python -m pip install fhr-monitor-analyzer
+python -c "import fhr_monitor_analyzer; print(fhr_monitor_analyzer.__all__)"
+```
+
+The `Publish Python Package` workflow builds wheels on Linux, macOS, and Windows, builds a source distribution, then publishes on tagged releases. The publish job only runs for tags; manual `workflow_dispatch` runs build artifacts but do not publish to PyPI.
 
 ## Next Implementation Steps
 
