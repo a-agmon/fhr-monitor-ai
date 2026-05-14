@@ -43,7 +43,7 @@ The engine reports protective features separately from alert reasons.
 | Protective feature | How it affects alerting |
 | --- | --- |
 | Moderate variability | Strongly reassuring in the current rules. It can suppress a low-concern Category II alert when no high-risk features are present. |
-| Accelerations present | Reassuring context, but not enough by itself to suppress an alert. Accelerations do not cancel marked variability, deep decelerations, recurrent variables, or high deceleration burden. |
+| Accelerations present | Reassuring context. They can suppress low-concern Category II findings such as mild variable decelerations, unclear gradual decelerations without low variability, or borderline marked variability when no high-risk features are present. Accelerations do not cancel deep decelerations, recurrent variables, persistent minimal variability, tachycardia change, or concerning deceleration burden. |
 
 This rule is important for alert fatigue. A single isolated variable deceleration with normal baseline, moderate variability, and accelerations may remain `none`. A tracing with accelerations but marked variability and deep decelerations should still alert.
 
@@ -53,11 +53,11 @@ The engine uses `warning` for Category II patterns that need attention but do no
 
 Current warning triggers include:
 
-- Marked variability, currently variability greater than 25 bpm.
-- Category II without moderate-variability protection.
+- Marked variability above 30 bpm. Borderline marked variability remains Category II, but does not interrupt by itself.
+- Category II without moderate-variability protection unless it is a low-concern marked/variable pattern with accelerations and no high-risk features.
 - Severe variable deceleration, defined by any variable deceleration with nadir below 80 bpm, depth at least 60 bpm below baseline, or duration at least 60 seconds.
 - Any deceleration with nadir below 80 bpm.
-- Total detected deceleration time of at least 60 seconds in the analyzed chunk.
+- Concerning deceleration burden: at least 120 total detected deceleration seconds, or at least 60 seconds plus recurrent decelerations, nadir below 100 bpm, or depth at least 30 bpm below baseline.
 - Baseline changing from normal to tachycardia when enough history exists.
 - Recurrent variable decelerations that do not meet urgent-review severity criteria.
 - Tachysystole without other high-risk features.
@@ -96,6 +96,7 @@ The engine returns `data_quality` when it should not force a clinical alert deci
 Current data-quality triggers include:
 
 - Fetal usable ratio below 50%.
+- Fetal usable ratio below 70% when the tracing is classifiable but has no high-risk features, to avoid clinical warning from marginal signal quality alone.
 - `unclassified` tracing because baseline or variability could not be determined.
 
 The response still includes numeric features when possible, but downstream systems should display the result as limited by signal quality.

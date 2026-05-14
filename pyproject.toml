@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "fhr-monitor-analyzer"
-version = "0.1.5"
+version = "0.1.6"
 description = "Decision-support fetal heart-rate monitor analyzer backed by a Rust rules engine."
 readme = "README.md"
 requires-python = ">=3.9"
