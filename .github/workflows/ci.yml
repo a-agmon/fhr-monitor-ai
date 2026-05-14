@@ -49,6 +49,6 @@ jobs:
       - name: Build local Python wheel
         run: maturin build --features python --out dist
       - name: Install local Python wheel
-        run: python -m pip install dist/*.whl
+        run: python -m pip install --no-index --find-links dist --only-binary=:all: fhr-monitor-analyzer
       - name: Run Python tests
         run: pytest tests/python
