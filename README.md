@@ -410,6 +410,8 @@ Build local Python artifacts:
 maturin build --release --features python --out dist
 ```
 
+The Python extension is built with PyO3 `abi3-py39`. This produces stable-ABI wheels such as `cp39-abi3-win_amd64.whl`, so one wheel per operating system and CPU architecture works across supported CPython versions 3.9 and newer. That avoids forcing users on Python 3.12 or 3.13 to compile from source.
+
 Publish to TestPyPI:
 
 1. Create a TestPyPI project named `fhr-monitor-analyzer`.
@@ -418,7 +420,7 @@ Publish to TestPyPI:
 4. Test the package:
 
 ```bash
-python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ fhr-monitor-analyzer
+python -m pip install --only-binary=:all: --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ fhr-monitor-analyzer
 python -c "import fhr_monitor_analyzer; print(fhr_monitor_analyzer.__all__)"
 ```
 
@@ -439,11 +441,11 @@ git push origin v0.1.0
 7. After it succeeds, verify the release from a clean environment:
 
 ```bash
-python -m pip install fhr-monitor-analyzer
+python -m pip install --only-binary=:all: fhr-monitor-analyzer
 python -c "import fhr_monitor_analyzer; print(fhr_monitor_analyzer.__all__)"
 ```
 
-The `Publish Python Package` workflow builds wheels on Linux, macOS, and Windows, builds a source distribution, then publishes on tagged releases. The publish job only runs for tags; manual `workflow_dispatch` runs build artifacts but do not publish to PyPI.
+The `Publish Python Package` workflow builds `abi3` wheels on Linux, macOS, and Windows, builds a source distribution, then publishes on tagged releases. The publish job only runs for tags; manual `workflow_dispatch` runs build artifacts but do not publish to PyPI.
 
 ## Next Implementation Steps
 

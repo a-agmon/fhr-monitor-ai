@@ -196,7 +196,7 @@ The publishing workflows build wheels on:
 - macOS
 - Windows
 
-They also build a source distribution.
+They build PyO3 `abi3-py39` wheels, so one wheel per operating system and CPU architecture supports CPython 3.9 and newer. They also build a source distribution as a fallback for unsupported platforms.
 
 ### CI Workflow
 
@@ -204,20 +204,23 @@ Runs on pushes to `main` and pull requests:
 
 - `cargo fmt --check`
 - `cargo test`
-- `maturin develop --features python`
+- `maturin build --features python`
+- install the local wheel
 - `pytest tests/python`
+
+The Python wheel install check runs on CPython 3.9, 3.10, 3.11, 3.12, and 3.13 on Linux, plus CPython 3.12 on Windows. This catches missing-wheel regressions before a tagged release.
 
 ### TestPyPI Workflow
 
 `Publish Python Package To TestPyPI` is manually triggered with `workflow_dispatch`.
 
-It builds Linux, macOS, and Windows wheels plus an sdist, then publishes to TestPyPI through Trusted Publishing.
+It builds Linux, macOS, and Windows `abi3` wheels plus an sdist, then publishes to TestPyPI through Trusted Publishing.
 
 ### PyPI Workflow
 
 `Publish Python Package` runs on tags such as `v0.1.0`.
 
-It builds Linux, macOS, and Windows wheels plus an sdist, then publishes to PyPI through Trusted Publishing.
+It builds Linux, macOS, and Windows `abi3` wheels plus an sdist, then publishes to PyPI through Trusted Publishing.
 
 Use PyPI Trusted Publishing instead of a long-lived API token. It is safer because GitHub receives temporary publish permission for the specific project and environment.
 
@@ -240,7 +243,7 @@ maturin build --release --features python --out dist
 Install after release:
 
 ```bash
-pip install fhr-monitor-analyzer
+pip install --only-binary=:all: fhr-monitor-analyzer
 pip install "fhr-monitor-analyzer[plot]"
 ```
 
@@ -253,4 +256,3 @@ Use semantic versioning:
 - Major version: renamed fields, removed fields, changed alert-level meanings, or incompatible request changes.
 
 The Python package version and Rust crate version should stay the same.
-

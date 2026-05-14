@@ -43,6 +43,8 @@ python -c "import fhr_monitor_analyzer; print(fhr_monitor_analyzer.__file__)"
 maturin build --release --features python --out dist
 ```
 
+- Release wheels use PyO3 `abi3-py39`, so the same OS-specific wheel supports CPython 3.9+.
+
 ## Load And Use The Python Lib
 
 - Analyze CSV and parse JSON:
@@ -107,3 +109,8 @@ git push origin v0.1.0
 ```
 
 - The publish workflow builds Linux, macOS, and Windows wheels plus an sdist, then publishes to PyPI if Trusted Publishing is configured correctly.
+- For locked-down machines, verify the binary wheel exists before allowing a source build:
+
+```bash
+python -m pip install --only-binary=:all: fhr-monitor-analyzer
+```
