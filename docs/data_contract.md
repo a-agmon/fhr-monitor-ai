@@ -139,6 +139,7 @@ The service should return both the classification and the evidence behind it:
   "alert_level": "warning",
   "baseline_bpm": 165,
   "variability_class": "minimal",
+  "sinusoidal_pattern": false,
   "features": {
     "fetal_hr_mean_bpm": 147.0,
     "fetal_hr_p05_bpm": 138.0,

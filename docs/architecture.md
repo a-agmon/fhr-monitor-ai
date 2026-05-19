@@ -159,6 +159,7 @@ The core feature functions in `analysis.rs` are:
 - `estimate_variability`: estimates variability from per-minute p95-p05 ranges near baseline.
 - `detect_accelerations`: detects accelerations using gestational-age-aware thresholds.
 - `detect_decelerations`: detects drops at least 15 bpm below baseline for at least 15 seconds.
+- `detect_sinusoidal_pattern`: conservatively detects smooth, regular 3-5 cycle/minute sinusoidal patterns persisting for at least 20 minutes.
 - `detect_contractions`: identifies contraction-like TOCO peaks.
 - `associate_decelerations_with_contractions`: classifies gradual decelerations as early or late when TOCO timing is clear.
 - `calculate_numeric_features`: builds the numeric `features` object returned in every window.
@@ -207,4 +208,3 @@ Follow these rules as the project grows:
 2. Add an HTTP service wrapper, likely with `axum`.
 3. Add response schema documentation after `serde` serialization is in place.
 4. Add episode-level state and alert deduplication above the stateless core.
-

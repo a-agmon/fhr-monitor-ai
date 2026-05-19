@@ -332,7 +332,7 @@ The project follows the ACOG/NICHD three-tier terminology for fetal heart-rate t
 | --- | --- | --- |
 | `category_i` | Reassuring/normal tracing features. | Baseline 110-160 bpm, moderate variability, and no detected late or variable decelerations. Early decelerations and accelerations may be present or absent. |
 | `category_ii` | Indeterminate tracing. This is intentionally broad. | Anything that is not Category I or Category III when enough signal exists to classify. Examples include tachycardia, bradycardia without absent variability, minimal variability, marked variability, prolonged deceleration, or recurrent late/variable decelerations without Category III criteria. |
-| `category_iii` | Abnormal tracing features where abnormal fetal acid-base status cannot be excluded. | Absent variability with recurrent late decelerations, recurrent variable decelerations, or bradycardia. A sinusoidal-pattern detector is not implemented yet. |
+| `category_iii` | Abnormal tracing features where abnormal fetal acid-base status cannot be excluded. | Absent variability with recurrent late decelerations, recurrent variable decelerations, or bradycardia; or a detected sinusoidal pattern persisting for at least 20 minutes. |
 | `unclassified` | The engine refuses to force a category. | Usually caused by too little usable fetal HR in the current 10-minute baseline segment or other signal-quality limitations. |
 
 Baseline metrics:

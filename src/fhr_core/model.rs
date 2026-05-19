@@ -100,6 +100,7 @@ pub struct WindowAnalysis {
     pub baseline_class: Option<BaselineClass>,
     pub variability_bpm: Option<f64>,
     pub variability_class: Option<VariabilityClass>,
+    pub sinusoidal_pattern: bool,
     pub accelerations: Vec<AccelerationEvent>,
     pub decelerations: Vec<DecelerationEvent>,
     pub toco: TocoSummary,

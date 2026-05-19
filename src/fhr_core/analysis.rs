@@ -13,6 +13,18 @@ const DECELERATION_BURDEN_SECONDS: f64 = 60.0;
 const STANDALONE_DECELERATION_BURDEN_SECONDS: f64 = 120.0;
 const CONCERNING_MARKED_VARIABILITY_BPM: f64 = 30.0;
 const MARGINAL_FETAL_USABLE_RATIO: f64 = 0.70;
+const CATEGORY_III_MIN_RECURRENT_CONTRACTIONS: usize = 2;
+const ALERT_MIN_RECURRENT_CONTRACTIONS: usize = 3;
+const SINUSOIDAL_MIN_USABLE_RATIO: f64 = 0.90;
+const SINUSOIDAL_MAX_MISSING_GAP_SECONDS: usize = 5;
+const SINUSOIDAL_BLOCK_SECONDS: usize = 5 * 60;
+const SINUSOIDAL_MIN_PEAK_TO_TROUGH_BPM: f64 = 10.0;
+const SINUSOIDAL_MAX_PEAK_TO_TROUGH_BPM: f64 = 30.0;
+const SINUSOIDAL_MIN_BAND_POWER_RATIO: f64 = 0.55;
+const SINUSOIDAL_MIN_BLOCK_BAND_POWER_RATIO: f64 = 0.45;
+const SINUSOIDAL_MAX_ROUGHNESS_RATIO: f64 = 0.45;
+const SINUSOIDAL_MIN_CYCLES_PER_MINUTE: f64 = 3.0;
+const SINUSOIDAL_MAX_CYCLES_PER_MINUTE: f64 = 5.0;
 const SEVERE_VARIABLE_DEPTH_BPM: f64 = 60.0;
 const SEVERE_VARIABLE_DURATION_SECONDS: f64 = 60.0;
 const EARLY_DECELERATION_PEAK_TOLERANCE_MS: i64 = 5_000;
@@ -212,6 +224,7 @@ fn analyze_window(
         .unwrap_or_default();
     let contractions = detect_contractions(&seconds, eval_start, window_end_ms);
     associate_decelerations_with_contractions(&mut decelerations, &contractions);
+    let sinusoidal_pattern = detect_sinusoidal_pattern(&seconds, eval_start, window_end_ms);
 
     let toco = summarize_toco(&seconds, contractions, window_start_ms, window_end_ms);
     // Numeric features are emitted even when the tracing is unclassified. Other
@@ -239,6 +252,7 @@ fn analyze_window(
         variability_class,
         &decelerations,
         &toco,
+        sinusoidal_pattern,
         window_start_ms,
         window_end_ms,
         &mut reasons,
@@ -252,6 +266,7 @@ fn analyze_window(
         &accelerations,
         &decelerations,
         &toco,
+        sinusoidal_pattern,
         window_start_ms,
         window_end_ms,
         &mut high_risk_features,
@@ -291,6 +306,7 @@ fn analyze_window(
         baseline_class,
         variability_bpm,
         variability_class,
+        sinusoidal_pattern,
         accelerations,
         decelerations,
         toco,
@@ -536,6 +552,170 @@ fn classify_variability(amplitude: f64) -> VariabilityClass {
     } else {
         VariabilityClass::Marked
     }
+}
+
+fn detect_sinusoidal_pattern(seconds: &[SecondSample], start_ms: i64, end_ms: i64) -> bool {
+    if end_ms - start_ms < TWENTY_MIN_MS {
+        return false;
+    }
+
+    let Some(values) = continuous_fhr_series(seconds, start_ms, end_ms) else {
+        return false;
+    };
+    if values.len() < TWENTY_MIN_MS as usize / 1_000 {
+        return false;
+    }
+
+    let smoothed = moving_average(&values, 2);
+    if !sinusoidal_like_values(&smoothed, SINUSOIDAL_MIN_BAND_POWER_RATIO) {
+        return false;
+    }
+
+    let block_count = smoothed.len() / SINUSOIDAL_BLOCK_SECONDS;
+    if block_count < 4 {
+        return false;
+    }
+    (0..4).all(|block| {
+        let start = block * SINUSOIDAL_BLOCK_SECONDS;
+        let end = start + SINUSOIDAL_BLOCK_SECONDS;
+        sinusoidal_like_values(&smoothed[start..end], SINUSOIDAL_MIN_BLOCK_BAND_POWER_RATIO)
+    })
+}
+
+fn continuous_fhr_series(seconds: &[SecondSample], start_ms: i64, end_ms: i64) -> Option<Vec<f64>> {
+    let samples: Vec<Option<f64>> = seconds
+        .iter()
+        .filter(|sample| sample.timestamp_ms >= start_ms && sample.timestamp_ms <= end_ms)
+        .map(|sample| sample.fhr)
+        .collect();
+    if samples.is_empty() {
+        return None;
+    }
+
+    let usable = samples.iter().filter(|sample| sample.is_some()).count();
+    if ratio(usable, samples.len()) < SINUSOIDAL_MIN_USABLE_RATIO {
+        return None;
+    }
+
+    let mut current_gap = 0;
+    let mut longest_gap = 0;
+    for sample in &samples {
+        if sample.is_some() {
+            current_gap = 0;
+        } else {
+            current_gap += 1;
+            longest_gap = longest_gap.max(current_gap);
+        }
+    }
+    if longest_gap > SINUSOIDAL_MAX_MISSING_GAP_SECONDS {
+        return None;
+    }
+
+    let mut values = Vec::with_capacity(samples.len());
+    for idx in 0..samples.len() {
+        if let Some(value) = samples[idx] {
+            values.push(value);
+            continue;
+        }
+        values.push(interpolated_value(&samples, idx)?);
+    }
+    Some(values)
+}
+
+fn interpolated_value(samples: &[Option<f64>], idx: usize) -> Option<f64> {
+    let previous = (0..idx)
+        .rev()
+        .find_map(|prev_idx| samples[prev_idx].map(|value| (prev_idx, value)));
+    let next = (idx + 1..samples.len())
+        .find_map(|next_idx| samples[next_idx].map(|value| (next_idx, value)));
+
+    match (previous, next) {
+        (Some((prev_idx, prev_value)), Some((next_idx, next_value))) => {
+            let span = (next_idx - prev_idx) as f64;
+            let offset = (idx - prev_idx) as f64;
+            Some(prev_value + (next_value - prev_value) * offset / span)
+        }
+        (Some((_, value)), None) | (None, Some((_, value))) => Some(value),
+        (None, None) => None,
+    }
+}
+
+fn moving_average(values: &[f64], radius: usize) -> Vec<f64> {
+    (0..values.len())
+        .map(|idx| {
+            let start = idx.saturating_sub(radius);
+            let end = (idx + radius + 1).min(values.len());
+            values[start..end].iter().sum::<f64>() / (end - start) as f64
+        })
+        .collect()
+}
+
+fn sinusoidal_like_values(values: &[f64], min_band_power_ratio: f64) -> bool {
+    if values.len() < SINUSOIDAL_BLOCK_SECONDS {
+        return false;
+    }
+
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let peak_to_trough = percentile(&sorted, 0.95) - percentile(&sorted, 0.05);
+    if !(SINUSOIDAL_MIN_PEAK_TO_TROUGH_BPM..=SINUSOIDAL_MAX_PEAK_TO_TROUGH_BPM)
+        .contains(&peak_to_trough)
+    {
+        return false;
+    }
+
+    let half_amplitude = peak_to_trough / 2.0;
+    let roughness = values
+        .windows(2)
+        .map(|pair| (pair[1] - pair[0]).abs())
+        .sum::<f64>()
+        / (values.len() - 1) as f64;
+    if roughness / half_amplitude > SINUSOIDAL_MAX_ROUGHNESS_RATIO {
+        return false;
+    }
+
+    let mean = values.iter().sum::<f64>() / values.len() as f64;
+    let residuals: Vec<f64> = values.iter().map(|value| value - mean).collect();
+    let (band_power, total_power, dominant_cpm) = sinusoidal_frequency_metrics(&residuals);
+    total_power > 0.0
+        && (band_power / total_power) >= min_band_power_ratio
+        && (SINUSOIDAL_MIN_CYCLES_PER_MINUTE..=SINUSOIDAL_MAX_CYCLES_PER_MINUTE)
+            .contains(&dominant_cpm)
+}
+
+fn sinusoidal_frequency_metrics(values: &[f64]) -> (f64, f64, f64) {
+    let mut total_power = 0.0;
+    let mut band_power = 0.0;
+    let mut dominant_power = 0.0;
+    let mut dominant_cpm = 0.0;
+    let mut cpm = 1.0;
+
+    while cpm <= 8.0 {
+        let power = frequency_power(values, cpm);
+        total_power += power;
+        if (SINUSOIDAL_MIN_CYCLES_PER_MINUTE..=SINUSOIDAL_MAX_CYCLES_PER_MINUTE).contains(&cpm) {
+            band_power += power;
+            if power > dominant_power {
+                dominant_power = power;
+                dominant_cpm = cpm;
+            }
+        }
+        cpm += 0.25;
+    }
+
+    (band_power, total_power, dominant_cpm)
+}
+
+fn frequency_power(values: &[f64], cycles_per_minute: f64) -> f64 {
+    let radians_per_second = 2.0 * std::f64::consts::PI * cycles_per_minute / 60.0;
+    let mut real = 0.0;
+    let mut imaginary = 0.0;
+    for (idx, value) in values.iter().enumerate() {
+        let angle = radians_per_second * idx as f64;
+        real += value * angle.cos();
+        imaginary += value * angle.sin();
+    }
+    real * real + imaginary * imaginary
 }
 
 fn detect_accelerations(
@@ -900,10 +1080,16 @@ fn classify_window(
     variability_class: Option<VariabilityClass>,
     decelerations: &[DecelerationEvent],
     toco: &TocoSummary,
+    sinusoidal_pattern: bool,
     window_start_ms: i64,
     window_end_ms: i64,
     reasons: &mut Vec<String>,
 ) -> CategoryClassification {
+    if sinusoidal_pattern {
+        reasons.push("sinusoidal pattern for at least 20 minutes".to_string());
+        return CategoryClassification::CategoryIII;
+    }
+
     let Some(baseline_class) = baseline_class else {
         reasons.push("cannot classify without a determinate baseline".to_string());
         return CategoryClassification::Unclassified;
@@ -919,6 +1105,7 @@ fn classify_window(
         DecelerationKind::Late,
         window_start_ms,
         window_end_ms,
+        CATEGORY_III_MIN_RECURRENT_CONTRACTIONS,
     );
     let recurrent_variable = recurrent_deceleration_kind(
         decelerations,
@@ -926,6 +1113,7 @@ fn classify_window(
         DecelerationKind::Variable,
         window_start_ms,
         window_end_ms,
+        CATEGORY_III_MIN_RECURRENT_CONTRACTIONS,
     );
     let has_late_or_variable = decelerations.iter().any(|event| {
         matches!(
@@ -999,11 +1187,15 @@ fn find_risk_features(
     accelerations: &[AccelerationEvent],
     decelerations: &[DecelerationEvent],
     toco: &TocoSummary,
+    sinusoidal_pattern: bool,
     window_start_ms: i64,
     window_end_ms: i64,
     high_risk_features: &mut Vec<String>,
     protective_features: &mut Vec<String>,
 ) {
+    if sinusoidal_pattern {
+        high_risk_features.push("sinusoidal pattern".to_string());
+    }
     if variability_class == Some(VariabilityClass::Absent) {
         high_risk_features.push("absent variability".to_string());
     }
@@ -1027,6 +1219,7 @@ fn find_risk_features(
         DecelerationKind::Late,
         window_start_ms,
         window_end_ms,
+        ALERT_MIN_RECURRENT_CONTRACTIONS,
     );
     let recurrent_variable = recurrent_deceleration_kind(
         decelerations,
@@ -1034,6 +1227,7 @@ fn find_risk_features(
         DecelerationKind::Variable,
         window_start_ms,
         window_end_ms,
+        ALERT_MIN_RECURRENT_CONTRACTIONS,
     );
     if recurrent_late {
         high_risk_features.push("recurrent late decelerations".to_string());
@@ -1323,8 +1517,10 @@ fn recurrent_deceleration_kind(
     kind: DecelerationKind,
     window_start_ms: i64,
     window_end_ms: i64,
+    min_contractions: usize,
 ) -> bool {
-    if window_end_ms - window_start_ms < TWENTY_MIN_MS || toco.contractions.len() < 3 {
+    if window_end_ms - window_start_ms < TWENTY_MIN_MS || toco.contractions.len() < min_contractions
+    {
         return false;
     }
     let matching_decelerations = decelerations
@@ -1552,6 +1748,13 @@ pub fn report_as_json(report: &AnalysisReport) -> String {
             3,
             "variability_class",
             window.variability_class.map(VariabilityClass::as_str),
+            true,
+        );
+        push_json_bool(
+            &mut out,
+            3,
+            "sinusoidal_pattern",
+            window.sinusoidal_pattern,
             true,
         );
         out.push_str("      \"features\": {\n");
@@ -1932,6 +2135,15 @@ fn push_json_bool_option(
     out.push('\n');
 }
 
+fn push_json_bool(out: &mut String, indent: usize, key: &str, value: bool, comma: bool) {
+    out.push_str(&"  ".repeat(indent));
+    out.push_str(&format!("\"{key}\": {value}"));
+    if comma {
+        out.push(',');
+    }
+    out.push('\n');
+}
+
 fn push_string_array(out: &mut String, indent: usize, key: &str, values: &[String], comma: bool) {
     out.push_str(&"  ".repeat(indent));
     out.push_str(&format!("\"{key}\": ["));
@@ -2024,6 +2236,26 @@ mod tests {
             .collect()
     }
 
+    fn sinusoidal_samples(
+        duration_seconds: usize,
+        baseline: f64,
+        amplitude: f64,
+        cycles_per_minute: f64,
+    ) -> Vec<SecondSample> {
+        (0..duration_seconds)
+            .map(|second| {
+                let angle = 2.0 * std::f64::consts::PI * cycles_per_minute * second as f64 / 60.0;
+                SecondSample {
+                    timestamp_ms: second as i64 * 1_000,
+                    timestamp: timestamp_at(second as i64),
+                    fhr: Some(baseline + amplitude * angle.sin()),
+                    hrm: None,
+                    toco: Some(10.0),
+                }
+            })
+            .collect()
+    }
+
     fn timestamp_at(second: i64) -> String {
         format!("2026-01-01 00:{:02}:{:02}.000", second / 60, second % 60)
     }
@@ -2037,6 +2269,14 @@ mod tests {
             depth_bpm: 40.0,
             onset_to_nadir_seconds: 10.0,
             kind: DecelerationKind::Variable,
+        }
+    }
+
+    fn late_deceleration(start_sec: i64, end_sec: i64) -> DecelerationEvent {
+        DecelerationEvent {
+            kind: DecelerationKind::Late,
+            onset_to_nadir_seconds: 40.0,
+            ..variable_deceleration(start_sec, end_sec)
         }
     }
 
@@ -2224,6 +2464,7 @@ mod tests {
             DecelerationKind::Variable,
             0,
             TWENTY_MIN_MS,
+            ALERT_MIN_RECURRENT_CONTRACTIONS,
         ));
         assert!(!recurrent_deceleration_kind(
             &decelerations,
@@ -2231,6 +2472,7 @@ mod tests {
             DecelerationKind::Variable,
             0,
             TWENTY_MIN_MS - 1,
+            ALERT_MIN_RECURRENT_CONTRACTIONS,
         ));
         assert!(recurrent_deceleration_kind(
             &decelerations,
@@ -2238,7 +2480,92 @@ mod tests {
             DecelerationKind::Variable,
             0,
             TWENTY_MIN_MS,
+            ALERT_MIN_RECURRENT_CONTRACTIONS,
         ));
+    }
+
+    #[test]
+    fn category_iii_uses_sensitive_recurrent_threshold() {
+        let decelerations = vec![late_deceleration(60, 110), late_deceleration(240, 290)];
+        let toco = TocoSummary {
+            contractions: vec![contraction(30, 120), contraction(210, 300)],
+            contractions_per_10_min: 1.0,
+            tachysystole: None,
+        };
+        let mut reasons = Vec::new();
+
+        let classification = classify_window(
+            Some(BaselineClass::Normal),
+            Some(VariabilityClass::Absent),
+            &decelerations,
+            &toco,
+            false,
+            0,
+            TWENTY_MIN_MS,
+            &mut reasons,
+        );
+
+        assert_eq!(classification, CategoryClassification::CategoryIII);
+        assert!(
+            reasons.contains(
+                &"absent variability with bradycardia or recurrent late/variable decelerations"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn absent_variability_with_bradycardia_is_category_iii() {
+        let mut reasons = Vec::new();
+
+        let classification = classify_window(
+            Some(BaselineClass::Bradycardia),
+            Some(VariabilityClass::Absent),
+            &[],
+            &empty_toco(None),
+            false,
+            0,
+            TEN_MIN_MS,
+            &mut reasons,
+        );
+
+        assert_eq!(classification, CategoryClassification::CategoryIII);
+    }
+
+    #[test]
+    fn detects_sinusoidal_pattern_over_twenty_minutes() {
+        let seconds = sinusoidal_samples(20 * 60 + 1, 140.0, 10.0, 4.0);
+
+        assert!(detect_sinusoidal_pattern(&seconds, 0, TWENTY_MIN_MS));
+    }
+
+    #[test]
+    fn rejects_irregular_variability_as_sinusoidal() {
+        let values: Vec<f64> = (0..20 * 60 + 1)
+            .map(|second| 140.0 + ((second * 17 % 23) as f64 - 11.0))
+            .collect();
+        let seconds = second_samples(&values);
+
+        assert!(!detect_sinusoidal_pattern(&seconds, 0, TWENTY_MIN_MS));
+    }
+
+    #[test]
+    fn sinusoidal_pattern_is_category_iii_without_baseline_or_variability() {
+        let mut reasons = Vec::new();
+
+        let classification = classify_window(
+            None,
+            None,
+            &[],
+            &empty_toco(None),
+            true,
+            0,
+            TWENTY_MIN_MS,
+            &mut reasons,
+        );
+
+        assert_eq!(classification, CategoryClassification::CategoryIII);
+        assert!(reasons.contains(&"sinusoidal pattern for at least 20 minutes".to_string()));
     }
 
     #[test]

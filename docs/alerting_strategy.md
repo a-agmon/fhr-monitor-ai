@@ -21,7 +21,7 @@ This separation matters because Category II is broad. Some Category II chunks ha
 | --- | --- | --- |
 | `category_i` | Normal/reassuring tracing features. | Baseline 110-160 bpm, moderate variability, no late or variable decelerations. Early decelerations and accelerations may be present or absent. |
 | `category_ii` | Indeterminate tracing. | Any classifiable tracing that is not Category I or Category III. Examples include marked variability, minimal variability, tachycardia, bradycardia without Category III criteria, prolonged deceleration, recurrent variable decelerations with preserved variability, or recurrent late decelerations with moderate variability. |
-| `category_iii` | Abnormal tracing features where abnormal fetal acid-base status cannot be excluded. | Absent variability with recurrent late decelerations, recurrent variable decelerations, or bradycardia. A sinusoidal-pattern detector is not implemented yet. |
+| `category_iii` | Abnormal tracing features where abnormal fetal acid-base status cannot be excluded. | Absent variability with recurrent late decelerations, recurrent variable decelerations, or bradycardia; or a detected sinusoidal pattern. |
 | `unclassified` | The engine refuses to force a clinical category. | Usually caused by too little usable fetal HR for baseline/variability estimation or severe signal-quality limits. |
 
 ## Alert Levels
@@ -86,8 +86,11 @@ The engine uses `critical` for Category III criteria:
 - Absent variability with recurrent late decelerations.
 - Absent variability with recurrent variable decelerations.
 - Absent variability with bradycardia.
+- Sinusoidal pattern for at least 20 minutes.
 
-Sinusoidal-pattern detection is not implemented yet, so the engine currently cannot escalate a sinusoidal pattern to `critical`.
+Category III recurrence is intentionally more sensitive than lower-priority Category II alert recurrence: absent variability plus recurrent late/variable decelerations is treated as critical once a 20-minute window has at least two contractions and at least two matching decelerations involving at least half of contractions.
+
+The sinusoidal detector is conservative: it requires enough usable fetal-HR signal, a smooth regular oscillation, peak-to-trough amplitude in the expected sinusoidal range, and dominant spectral power at 3-5 cycles per minute across the latest 20 minutes.
 
 ## Data Quality Rules
 
